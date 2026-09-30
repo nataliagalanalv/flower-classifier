@@ -15,20 +15,9 @@ from data_setup_tl import test_loader_tl
 from model_transfer import build_resnet18_finetune
 import matplotlib.pyplot as plt
 import seaborn as sns
-import json
+from class_names import idx_to_name
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Community-sourced index -> flower name mapping (1-indexed in the JSON, hence the +1 offset in idx_to_name below; torchvision labels are 0-indexed).
-with open("data/cat_to_name.json", "r") as f:
-    cat_to_name = json.load(f)
-
-def idx_to_name(idx):
-    """Map a torchvision Flowers102 class index (0-101) to a flower name.
-
-    Falls back to a placeholder string instead of raising KeyError, so a missing/malformed entry in the community JSON doesn't crash the script.
-    """
-    return cat_to_name.get(str(idx + 1), f"clase_{idx}")
 
 # Rebuild the exact same architecture used during fine-tuning, then load the best checkpoint (selected by validation accuracy) on top of it.
 model = build_resnet18_finetune(num_classes=102)
