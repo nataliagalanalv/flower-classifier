@@ -7,7 +7,7 @@ Image classifier for the [Oxford 102 Flowers](https://www.robots.ox.ac.uk/~vgg/d
 ## Project structure
 
 ```
-flower-classifier/
+flower-classifier/ 
 ├── src/
 │   ├── explore_data.py            # quick, raw dataset exploration
 │   ├── data_setup.py              # data pipeline for the from-scratch CNN (128x128)
