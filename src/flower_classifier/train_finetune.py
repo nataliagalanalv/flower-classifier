@@ -10,8 +10,8 @@ this was the best-performing configuration overall (~90.78% val acc).
 
 import torch
 import torch.nn as nn
-from data_setup_tl import train_loader_tl, val_loader_tl
-from model_transfer import build_resnet18_finetune
+from .data_setup_tl import train_loader_tl, val_loader_tl
+from .model_transfer import build_resnet18_finetune
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Usando dispositivo: {device}")

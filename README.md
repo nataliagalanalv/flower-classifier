@@ -7,22 +7,28 @@ Image classifier for the [Oxford 102 Flowers](https://www.robots.ox.ac.uk/~vgg/d
 ## Project structure
 
 ```
-flower-classifier/ 
+flower-classifier/
+├── pyproject.toml                 # package metadata (src-layout, setuptools)
 ├── src/
-│   ├── explore_data.py            # quick, raw dataset exploration
-│   ├── data_setup.py              # data pipeline for the from-scratch CNN (128x128)
-│   ├── data_setup_tl.py           # data pipeline for transfer learning (224x224, incl. test split)
-│   ├── model.py                   # SimpleCNN architecture (from scratch)
-│   ├── model_transfer.py          # ResNet18 builders (feature extraction / fine-tuning)
-│   ├── train.py                   # trains SimpleCNN
-│   ├── train_feature_extract.py   # trains ResNet18 with the backbone frozen
-│   ├── train_finetune.py          # trains ResNet18 with layer4 unfrozen
-│   ├── evaluate.py                # final, one-time evaluation on the test split
-│   └── confusion_analysis.py      # confusion matrix, per-class accuracy, hardest classes
-├── data/                          # dataset (downloaded automatically, gitignored)
-├── outputs/                       # model checkpoints (.pth) and confusion_matrix.png
-├── RESULTS.md                     # full results log (in Spanish)
-├── ANALYSIS.md                    # findings and conclusions (in Spanish)
+│   └── flower_classifier/
+│       ├── __init__.py
+│       ├── explore_data.py        # quick, raw dataset exploration
+│       ├── data_setup.py          # data pipeline for the from-scratch CNN (128x128)
+│       ├── data_setup_tl.py       # data pipeline for transfer learning (224x224, incl. test split)
+│       ├── model.py               # SimpleCNN architecture (from scratch)
+│       ├── model_transfer.py      # ResNet18 builders (feature extraction / fine-tuning)
+│       ├── class_names.py         # class index -> flower name mapping
+│       ├── train.py               # trains SimpleCNN
+│       ├── train_feature_extract.py   # trains ResNet18 with the backbone frozen
+│       ├── train_finetune.py      # trains ResNet18 with layer4 unfrozen
+│       ├── evaluate.py            # final, one-time evaluation on the test split
+│       └── confusion_analysis.py  # confusion matrix, per-class accuracy, hardest classes
+├── app/                            # FastAPI demo server (local image upload + classification)
+├── tests/                          # pytest suite
+├── data/                           # dataset (downloaded automatically, gitignored)
+├── outputs/                        # model checkpoints (.pth) and confusion_matrix.png
+├── RESULTS.md                      # full results log (in Spanish)
+├── ANALYSIS.md                     # findings and conclusions (in Spanish)
 └── requirements.txt
 ```
 
@@ -51,28 +57,33 @@ Tested with Python 3.14 on Windows 11 with an NVIDIA GPU (CUDA 12.6).
    pip install -r requirements.txt
    ```
 
+4. Install the project itself as an editable package (needed for the internal package imports to resolve, and for running modules with `python -m`):
+```powershell
+   pip install -e .
+```
+
 ## Usage
 
 Run scripts from the project root, in this order:
 
 ```powershell
 # 1. (Optional) Explore the raw dataset
-python src/explore_data.py
+python -m flower_classifier.explore_data
 
 # 2. Train the from-scratch CNN
-python src/train.py
+python -m flower_classifier.train
 
 # 3. Train ResNet18 (feature extraction)
-python src/train_feature_extract.py
+python -m flower_classifier.train_feature_extract
 
 # 4. Train ResNet18 (fine-tuning, layer4 unfrozen)
-python src/train_finetune.py
+python -m flower_classifier.train_finetune
 
 # 5. Evaluate the best fine-tuned model on the held-out test split
-python src/evaluate.py
+python -m flower_classifier.evaluate
 
 # 6. Error analysis: confusion matrix, per-class accuracy, hardest classes
-python src/confusion_analysis.py
+python -m flower_classifier.confusion_analysis
 ```
 
 The dataset downloads automatically on first run (`download=True`) into `data/`.

@@ -9,8 +9,8 @@ given the small training set (1020 images / 102 classes).
 
 import torch
 import torch.nn as nn
-from data_setup import train_loader, val_loader
-from model import SimpleCNN
+from .data_setup import train_loader, val_loader
+from .model import SimpleCNN
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Usando dispositivo: {device}")

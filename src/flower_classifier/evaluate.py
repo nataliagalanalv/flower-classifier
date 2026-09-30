@@ -8,8 +8,8 @@ reportable result — not a starting point for further tuning.
 
 import torch
 import torch.nn as nn
-from data_setup_tl import test_loader_tl
-from model_transfer import build_resnet18_finetune
+from .data_setup_tl import test_loader_tl
+from .model_transfer import build_resnet18_finetune
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Usando dispositivo: {device}")

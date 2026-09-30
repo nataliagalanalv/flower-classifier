@@ -8,7 +8,7 @@ require network access the first time they execute.
 
 import torch
 
-from model_transfer import build_resnet18_feature_extractor, build_resnet18_finetune
+from flower_classifier.model_transfer import build_resnet18_feature_extractor, build_resnet18_finetune
 
 
 def test_feature_extractor_only_trains_fc_layer():

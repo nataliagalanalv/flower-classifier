@@ -4,7 +4,7 @@ Unit tests for the from-scratch CNN architecture (SimpleCNN).
 
 import torch
 
-from model import SimpleCNN
+from flower_classifier.model import SimpleCNN
 
 
 def test_output_shape_matches_num_classes():

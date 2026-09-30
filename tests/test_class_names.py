@@ -2,7 +2,7 @@
 Unit tests for the class index -> flower name mapping logic.
 """
 
-from class_names import idx_to_name
+from flower_classifier.class_names import idx_to_name
 
 
 def test_known_index_returns_a_name():

@@ -11,8 +11,8 @@ treat names as approximate and cross-check against the numeric class index if pr
 import torch
 import numpy as np
 from sklearn.metrics import confusion_matrix
-from data_setup_tl import test_loader_tl
-from model_transfer import build_resnet18_finetune
+from .data_setup_tl import test_loader_tl
+from .model_transfer import build_resnet18_finetune
 import matplotlib.pyplot as plt
 import seaborn as sns
 from class_names import idx_to_name

@@ -8,8 +8,8 @@ Saves both the best checkpoint (by validation accuracy) and the final-epoch chec
 
 import torch
 import torch.nn as nn
-from data_setup_tl import train_loader_tl, val_loader_tl
-from model_transfer import build_resnet18_feature_extractor
+from .data_setup_tl import train_loader_tl, val_loader_tl
+from .model_transfer import build_resnet18_feature_extractor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Usando dispositivo: {device}")
