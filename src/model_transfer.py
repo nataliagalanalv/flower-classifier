@@ -67,7 +67,7 @@ if __name__ == "__main__":
     total_ft = sum(p.numel() for p in model_ft.parameters())
     print(f"[Fine-tuning] Parámetros entrenables: {trainable_ft:,} de {total_ft:,} totales")
 
-    # Sanity check 3: confirm the model can process a dummy input and produce the expected output shape.
+    # Sanity check 3: confirm the fine-tuning model can process a dummy input and produce the expected output shape.
     dummy_input = torch.randn(1, 3, 224, 224)
-    output = model(dummy_input)
+    output = model_ft(dummy_input)
     print(f"Shape de salida: {output.shape}")
