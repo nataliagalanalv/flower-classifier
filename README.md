@@ -2,7 +2,7 @@
 
 Image classifier for the [Oxford 102 Flowers](https://www.robots.ox.ac.uk/~vgg/data/flowers/102/) dataset, built with PyTorch. Compares a convolutional neural network trained from scratch against transfer learning with ResNet18 (feature extraction and fine-tuning).
 
-**Best result: 87.87% accuracy on the held-out test set**, using a fine-tuned ResNet18 (last residual block unfrozen). See [`RESULTS.md`](./RESULTS.md) for the full experiment log and [`ANALYSIS.md`](./ANALYSIS.md) for the write-up of findings and conclusions.
+**Best result: 87.87% accuracy on the held-out test set**, using a fine-tuned ResNet18 (last residual block unfrozen). See [`docs/results.md`](./docs/results.md) for the full experiment log and [`docs/analysis_results.md`](./docs/analysis_results.md) for the write-up of findings and conclusions.
 
 ## Project structure
 
@@ -24,11 +24,16 @@ flower-classifier/
 │       ├── evaluate.py            # final, one-time evaluation on the test split
 │       └── confusion_analysis.py  # confusion matrix, per-class accuracy, hardest classes
 ├── app/                            # FastAPI demo server (local image upload + classification)
+├── docs/
+│     ├── analysis_results.md
+│     ├── results.md
+│     └── testing.md
 ├── tests/                          # pytest suite
+│     ├── test_class_names.py       # idx_to_name mapping logic
+│     ├── test_model.py             # SimpleCNN output shape
+│     └── test_model_transfer.py    # ResNet18 layer freezing + output shape
 ├── data/                           # dataset (downloaded automatically, gitignored)
 ├── outputs/                        # model checkpoints (.pth) and confusion_matrix.png
-├── RESULTS.md                      # full results log (in Spanish)
-├── ANALYSIS.md                     # findings and conclusions (in Spanish)
 └── requirements.txt
 ```
 
@@ -96,8 +101,18 @@ The dataset downloads automatically on first run (`download=True`) into `data/`.
 | ResNet18 feature extraction | 52,326 (0.47%) | 79.22% | — |
 | **ResNet18 fine-tuning** (`layer4` + `fc`) | 8,446,054 (~75%) | 90.78% | **87.87%** |
 
-Full breakdown, per-class accuracy, and the most frequent misclassifications are in [`RESULTS.md`](./RESULTS.md). Interpretation of *why* transfer learning wins here, the effect (or lack thereof) of `weight_decay`, and dataset-imbalance caveats are in [`ANALYSIS.md`](./ANALYSIS.md).
+Full breakdown, per-class accuracy, and the most frequent misclassifications are in [`docs/results.md`](./docs/results.md). Interpretation of why transfer learning wins here, the effect (or lack thereof) of weight_decay, and dataset-imbalance caveats are in [`docs/analysis_results.md`](./docs/analysis_results.md).
+
+## Testing
+
+The project includes a pytest suite covering model architecture shapes, the correctness of layer freezing/unfreezing in transfer learning, and the class-index-to-name mapping logic. It deliberately does not test the training loops themselves (slow, non-deterministic, and requires data/GPU) — see [`docs/TESTING.md`](./docs/TESTING.md) for the full rationale and a breakdown of each test.
+
+Run the suite from the project root:
+
+```powershell
+pytest -v
+```
 
 ## Notes on data sources
 
-- Class names (flower species) come from a community-maintained `cat_to_name.json` mapping, not an official torchvision/Oxford source — treat names as approximate; the numeric class index (0–101) is the reliable reference. See `ANALYSIS.md` for a known inconsistency found in this file.
+- Class names (flower species) come from a community-maintained `cat_to_name.json` mapping, not an official torchvision/Oxford source — treat names as approximate; the numeric class index (0–101) is the reliable reference. See [`docs/analysis_results.md`](./docs/analysis_results.md) for a known inconsistency found in this file.
