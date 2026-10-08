@@ -79,6 +79,6 @@ if __name__ == "__main__":
     print(f"[Fine-tuning] Parámetros entrenables: {trainable_ft:,} de {total_ft:,} totales")
 
     # Sanity check 3: confirm the fine-tuning model can process a dummy input and produce the expected output shape.
-    dummy_input = torch.randn(1, 3, 224, 224)
+    dummy_input = torch.randn(1, 3, RESNET_INPUT_SIZE, RESNET_INPUT_SIZE)  # batch size 1, 3 channels, 224x224
     output = model_ft(dummy_input)
     print(f"Shape de salida: {output.shape}")

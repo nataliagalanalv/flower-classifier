@@ -20,7 +20,7 @@ import torch.nn as nn
 from .data_setup import get_dataloaders
 from .engine import evaluate, train_one_epoch
 from .model import SimpleCNN
-from .model_transfer import build_resnet18_feature_extractor, build_resnet18_finetune
+from .model_transfer import build_resnet18_feature_extractor, build_resnet18_finetune, RESNET_INPUT_SIZE
 
 
 @dataclass(frozen=True)
@@ -62,12 +62,12 @@ MODELS = {
     ),
     "resnet18-fe": ModelConfig(
         build_model=build_resnet18_feature_extractor, trainable_params=_head_params,
-        img_size=224, epochs=20, lr=1e-3, weight_decay=0.0,
+        img_size=RESNET_INPUT_SIZE, epochs=20, lr=1e-3, weight_decay=0.0,
         best_ckpt="best_resnet18_feature_extract.pth", final_ckpt="resnet18_feature_extract_final.pth",
     ),
     "resnet18-ft": ModelConfig(
         build_model=build_resnet18_finetune, trainable_params=_finetune_params,
-        img_size=224, epochs=20, lr=1e-3, weight_decay=0.0,
+        img_size=RESNET_INPUT_SIZE, epochs=20, lr=1e-3, weight_decay=0.0,
         best_ckpt="best_resnet18_finetune.pth", final_ckpt="resnet18_finetune_final_wd.pth",
     ),
 }
