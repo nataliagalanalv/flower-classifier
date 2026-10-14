@@ -1,6 +1,6 @@
 # Tests del Proyecto
  
-Resumen de los tests automatizados del clasificador de flores: qué se decidió testear, por qué, qué herramientas se usaron y cómo evolucionaron junto con el resto del proyecto. Para los resultados del modelo en sí, ver [`RESULTS.md`](./RESULTS.md) y [`ANALYSIS.md`](./ANALYSIS.md).
+Resumen de los tests automatizados del clasificador de flores: qué se decidió testear, por qué, qué herramientas se usaron y cómo evolucionaron junto con el resto del proyecto. Para los resultados del modelo en sí, ver [results.md](./results.md) y [analysis_results.md](./analysis_results.md).
  
 ## Objetivo
  
@@ -8,14 +8,18 @@ Los tests no evalúan si el modelo "acierta" clasificando flores — esa evaluac
  
 ## Filosofía: qué se testea y qué no
  
-**No se testea el bucle de entrenamiento** (`train.py`, `train_feature_extract.py`, `train_finetune.py`). Motivos:
+**No se testea el bucle de entrenamiento** (`engine.py`, que contiene `train_one_epoch()` y `evaluate()`, y `train.py`, que los usa). Motivos:
+
 - Es lento (minutos u horas), así que nadie lo ejecutaría antes de cada commit.
-- No es determinista: los pesos cambian en cada ejecución (no se fijó una semilla aleatoria en este proyecto, ver `ANALYSIS.md`).
+- No es determinista: los pesos cambian en cada ejecución (no se fijó una semilla aleatoria en este proyecto, ver `analysis_results.md`).
 - Depende de tener el dataset descargado y, idealmente, GPU disponible.
+
 **Sí se testea:**
+
 - **Arquitectura de los modelos** (forma de salida dada una forma de entrada).
 - **Congelación/descongelación de parámetros** en transfer learning, porque un error aquí no lanza ninguna excepción — el modelo simplemente entrenaría mal, en silencio, y tardaríamos horas en darnos cuenta sin un test.
 - **Lógica pura sin efectos secundarios** (el mapeo índice → nombre de flor), porque es determinista y fácil de aislar.
+
 La idea general: un test suite no busca cobertura del 100%, busca proteger las partes donde un error sería caro o invisible a simple vista.
  
 ## Un refactor que nació de testear: `class_names.py`
@@ -74,7 +78,7 @@ Los tests importan los módulos del proyecto como un paquete instalado: `from fl
 Esto es resultado de un cambio posterior a la creación original de los tests: el proyecto se reestructuró como un paquete Python instalable (`src/flower_classifier/`, con `pyproject.toml`), instalado en modo editable:
  
 ```powershell
-pip install -e .
+pip install -e ".[dev]"
 ```
  
 ## Cómo ejecutar los tests
@@ -86,3 +90,7 @@ pytest -v
 ```
  
 Resultado esperado: 10 tests recogidos, los 10 en verde, en pocos segundos — sin GPU, sin descargar el dataset completo, sin entrenar nada.
+
+## Integración continua
+
+Los mismos tests se ejecutan automáticamente en GitHub Actions (`.github/workflows/tests.yml`) en cada `push` a `main` y en cada Pull Request. El workflow instala el proyecto en una máquina Linux limpia, con PyTorch solo para CPU, y lanza `pytest -v`. Esto detecta problemas que en un entorno local pueden pasar desapercibidos, como una dependencia que falta en `pyproject.toml`. Para acelerar las ejecuciones, se guarda en caché la descarga de los pesos de ImageNet que necesita `test_model_transfer.py`.
