@@ -1,85 +1,128 @@
 """
-Training script for the from-scratch CNN (SimpleCNN), 128x128 images.
+Unified training script for every model in the project.
 
-All ~11.2M parameters are trained from random initialization — 
-no pretrained weights involved. Uses weight_decay + BatchNorm (in the model)
-+ data augmentation (in data_setup.py) together to reduce overfitting,
-given the small training set (1020 images / 102 classes).
+Pick the model with --model. Its defaults reproduce the experiments documented
+in docs/results.md, and any of them can be overridden from the command line.
+
+Examples:
+    python -m flower_classifier.train --model cnn
+    python -m flower_classifier.train --model resnet18-ft --epochs 10
 """
+
+import argparse
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 import torch.nn as nn
-from .data_setup import train_loader, val_loader
+
+from .data_setup import get_dataloaders
+from .engine import evaluate, train_one_epoch
 from .model import SimpleCNN
+from .model_transfer import build_resnet18_feature_extractor, build_resnet18_finetune, RESNET_INPUT_SIZE
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Usando dispositivo: {device}")
 
-model = SimpleCNN(num_classes=102).to(device)
-criterion = nn.CrossEntropyLoss()
-# weight_decay (L2 regularization): penalizes large weights, pushing the
-# model toward "smoother" solutions less likely to memorize the training set.
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+@dataclass(frozen=True)
+class ModelConfig:
+    """Everything that differs between the models; the training loop is shared."""
+    build_model: Callable      # builds the (untrained) model
+    trainable_params: Callable  # (model, lr) -> parameters/groups handed to the optimizer
+    img_size: int              # input size the model expects
+    epochs: int
+    lr: float
+    weight_decay: float
+    best_ckpt: str             # checkpoint with the best validation accuracy
+    final_ckpt: str            # checkpoint of the last epoch
 
-NUM_EPOCHS = 30
-best_val_acc = 0.0 # tracked across epochs, initialized once before the loop
 
-for epoch in range(NUM_EPOCHS):
-    model.train() # enables Dropout / batch-based BatchNorm stats
-    running_loss = 0.0
-    correct = 0
-    total = 0
+def _all_params(model, lr):
+    return model.parameters()
 
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
 
-        optimizer.zero_grad() # clear gradients from the previous batch
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward() # backprop: computes gradients via autograd
-        optimizer.step() # updates all model parameters (nothing frozen here)
+def _head_params(model, lr):
+    # Backbone is frozen: only the new classification head is optimized.
+    return model.fc.parameters()
 
-        # Weighted by actual batch size since CrossEntropyLoss returns a
-        # per-batch mean, not a sum (matters for the last, possibly smaller batch).
-        running_loss += loss.item() * images.size(0)
-        _, predicted = torch.max(outputs, 1) # index of the highest logit = predicted class
-        correct += (predicted == labels).sum().item()
-        total += labels.size(0)
 
-    train_loss = running_loss / total
-    train_acc = correct / total
+def _finetune_params(model, lr):
+    # layer4 is pretrained -> gentle lr (1/10 of the head's).
+    # fc is new (random init) -> full lr.
+    return [
+        {"params": model.layer4.parameters(), "lr": lr * 0.1},
+        {"params": model.fc.parameters(), "lr": lr},
+    ]
 
-    model.eval() # disables Dropout, uses running BatchNorm stats
-    val_loss = 0.0
-    val_correct = 0
-    val_total = 0
 
-    with torch.no_grad(): # no backward() here, so no need to build the autograd graph
-        for images, labels in val_loader:
-            images, labels = images.to(device), labels.to(device)
+MODELS = {
+    "cnn": ModelConfig(
+        build_model=SimpleCNN, trainable_params=_all_params,
+        img_size=128, epochs=30, lr=1e-3, weight_decay=1e-4,
+        best_ckpt="best_simple_cnn_flowers.pth", final_ckpt="simple_cnn_flowers.pth",
+    ),
+    "resnet18-fe": ModelConfig(
+        build_model=build_resnet18_feature_extractor, trainable_params=_head_params,
+        img_size=RESNET_INPUT_SIZE, epochs=20, lr=1e-3, weight_decay=0.0,
+        best_ckpt="best_resnet18_feature_extract.pth", final_ckpt="resnet18_feature_extract_final.pth",
+    ),
+    "resnet18-ft": ModelConfig(
+        build_model=build_resnet18_finetune, trainable_params=_finetune_params,
+        img_size=RESNET_INPUT_SIZE, epochs=20, lr=1e-3, weight_decay=0.0,
+        best_ckpt="best_resnet18_finetune.pth", final_ckpt="resnet18_finetune_final_wd.pth",
+    ),
+}
 
-            outputs = model(images)
-            loss = criterion(outputs, labels)
 
-            val_loss += loss.item() * images.size(0)
-            _, predicted = torch.max(outputs, 1)
-            val_correct += (predicted == labels).sum().item()
-            val_total += labels.size(0)
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train a flower classifier.")
+    parser.add_argument("--model", required=True, choices=list(MODELS), help="model to train")
+    parser.add_argument("--epochs", type=int, default=None, help="override the model's default epochs")
+    parser.add_argument("--lr", type=float, default=None, help="override the model's default learning rate")
+    parser.add_argument("--weight-decay", type=float, default=None, help="override the model's default weight decay")
+    parser.add_argument("--output-dir", default="outputs", help="where checkpoints are saved")
+    return parser.parse_args()
 
-    val_loss = val_loss / val_total
-    val_acc = val_correct / val_total
 
-    print(f"Época {epoch+1}/{NUM_EPOCHS} | "
-          f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f} | "
-          f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+def main():
+    args = parse_args()
+    cfg = MODELS[args.model]
 
-    # Checkpointing: save whenever this epoch beats the best validation
-    # accuracy seen so far (not just whatever the final epoch happens to be).
-    if val_acc > best_val_acc:
-        best_val_acc = val_acc
-        torch.save(model.state_dict(), "outputs/best_simple_cnn_flowers.pth")
-        print(f"  → Nuevo mejor modelo guardado (Val Acc: {val_acc:.4f})")
+    # `is not None` (not `or`): 0.0 is a valid weight decay and must not fall back to the default.
+    epochs = args.epochs if args.epochs is not None else cfg.epochs
+    lr = args.lr if args.lr is not None else cfg.lr
+    weight_decay = args.weight_decay if args.weight_decay is not None else cfg.weight_decay
 
-# Also keep the final-epoch state separately, for comparison against the best checkpoint.
-torch.save(model.state_dict(), "outputs/simple_cnn_flowers.pth")
-print("Modelo final (época 30) guardado en outputs/simple_cnn_flowers.pth")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Usando dispositivo: {device}")
+
+    loaders = get_dataloaders(img_size=cfg.img_size)
+    model = cfg.build_model().to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(
+        cfg.trainable_params(model, lr), lr=lr, weight_decay=weight_decay
+    )
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    best_val_acc = 0.0  # tracked across epochs, initialized once before the loop
+    for epoch in range(epochs):
+        train_loss, train_acc = train_one_epoch(model, loaders["train"], criterion, optimizer, device)
+        val_loss, val_acc = evaluate(model, loaders["val"], criterion, device)
+
+        print(f"Época {epoch+1}/{epochs} | "
+              f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f} | "
+              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+
+        # Save whenever this epoch beats the best validation accuracy so far.
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            torch.save(model.state_dict(), output_dir / cfg.best_ckpt)
+            print(f"  → Nuevo mejor modelo guardado (Val Acc: {val_acc:.4f})")
+
+    torch.save(model.state_dict(), output_dir / cfg.final_ckpt)
+    print(f"Modelo final guardado en {output_dir / cfg.final_ckpt}")
+
+
+if __name__ == "__main__":
+    main()

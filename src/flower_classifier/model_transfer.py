@@ -9,7 +9,10 @@ Both replace the final `fc` layer (originally 1000 ImageNet classes) with a new 
 """
 
 import torch.nn as nn
+import torch
 from torchvision.models import resnet18, ResNet18_Weights
+
+RESNET_INPUT_SIZE = 224  # input size ResNet18 expects (matches its ImageNet pretraining)
 
 def build_resnet18_feature_extractor(num_classes=102):
     """Build ResNet18 with the entire pretrained backbone frozen.
@@ -27,7 +30,7 @@ def build_resnet18_feature_extractor(num_classes=102):
 
     return model
 
-def build_resnet18_finetune(num_classes=102):
+def build_resnet18_finetune(num_classes=102, pretrained=True):
     """Build ResNet18 with the backbone frozen except for `layer4` + `fc`.
 
     `layer4` is the last residual block — closest to the output, 
@@ -35,7 +38,7 @@ def build_resnet18_finetune(num_classes=102):
     Unfreezing only this block lets the model adapt to flowers without retraining the
     whole network from its pretrained state.
     """
-    weights = ResNet18_Weights.DEFAULT
+    weights = ResNet18_Weights.DEFAULT if pretrained else None
     model = resnet18(weights=weights)
 
     for param in model.parameters():
@@ -49,10 +52,18 @@ def build_resnet18_finetune(num_classes=102):
 
     return model
 
+def load_finetuned_model(checkpoint_path, device, num_classes=102):
+    """Rebuild the fine-tuned architecture, load a checkpoint and return it in eval mode.
+
+    pretrained=False: the checkpoint already contains every weight, so downloading
+    the ImageNet weights first would be wasted work (and would need network access).
+    """
+    model = build_resnet18_finetune(num_classes=num_classes, pretrained=False)
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
+    return model.to(device).eval()
+
 
 if __name__ == "__main__":
-    import torch
-
      # Sanity check 1: confirm feature extraction only trains the new head.
     model = build_resnet18_feature_extractor(num_classes=102)
 
@@ -68,6 +79,6 @@ if __name__ == "__main__":
     print(f"[Fine-tuning] Parámetros entrenables: {trainable_ft:,} de {total_ft:,} totales")
 
     # Sanity check 3: confirm the fine-tuning model can process a dummy input and produce the expected output shape.
-    dummy_input = torch.randn(1, 3, 224, 224)
+    dummy_input = torch.randn(1, 3, RESNET_INPUT_SIZE, RESNET_INPUT_SIZE)  # batch size 1, 3 channels, 224x224
     output = model_ft(dummy_input)
     print(f"Shape de salida: {output.shape}")

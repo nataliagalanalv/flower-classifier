@@ -6,45 +6,33 @@ the test split has never influenced any decision made so far. The resulting numb
 reportable result — not a starting point for further tuning.
 """
 
+import argparse
+
 import torch
 import torch.nn as nn
-from .data_setup_tl import test_loader_tl
-from .model_transfer import build_resnet18_finetune
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Usando dispositivo: {device}")
+from .data_setup import get_dataloaders
+from .engine import evaluate
+from .model_transfer import RESNET_INPUT_SIZE, load_finetuned_model
 
-# Rebuild the exact architecture used during fine-tuning (state_dict only stores weight values, not the model structure), 
-# then load the checkpoint with the best validation accuracy.
-model = build_resnet18_finetune(num_classes=102)
-model.load_state_dict(torch.load("outputs/best_resnet18_finetune.pth", weights_only=True))
-model.to(device)
-model.eval()  # disables Dropout, uses running BatchNorm stats (not batch stats)
+DEFAULT_CHECKPOINT = "outputs/best_resnet18_finetune.pth"
 
-criterion = nn.CrossEntropyLoss()
 
-test_loss = 0.0
-test_correct = 0
-test_total = 0
+def main():
+    parser = argparse.ArgumentParser(description="Evaluate the fine-tuned model on the test split.")
+    parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT, help="checkpoint to evaluate")
+    args = parser.parse_args()
 
-# Single pass over the test set. No backward(), no optimizer step, 
-# no gradient tracking — this loop only measures, it never trains.
-with torch.no_grad():
-    for images, labels in test_loader_tl:
-        images, labels = images.to(device), labels.to(device)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Usando dispositivo: {device}")
 
-        outputs = model(images)
-        loss = criterion(outputs, labels)
+    # The test split must be requested explicitly (see get_dataloaders).
+    test_loader = get_dataloaders(img_size=RESNET_INPUT_SIZE, include_test=True)["test"]
+    model = load_finetuned_model(args.checkpoint, device)
 
-        # Weighted by actual batch size (images.size(0)) 
-        # because CrossEntropyLoss returns the per-batch mean, 
-        # not the sum — matters for the last batch, which may be smaller than BATCH_SIZE.
-        test_loss += loss.item() * images.size(0)
-        _, predicted = torch.max(outputs, 1)
-        test_correct += (predicted == labels).sum().item()
-        test_total += labels.size(0)
+    test_loss, test_acc = evaluate(model, test_loader, nn.CrossEntropyLoss(), device)
+    print(f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
 
-test_loss = test_loss / test_total
-test_acc = test_correct / test_total
 
-print(f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
+if __name__ == "__main__":
+    main()
