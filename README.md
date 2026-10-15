@@ -9,7 +9,7 @@ Image classifier for the [Oxford 102 Flowers](https://www.robots.ox.ac.uk/~vgg/d
 ## Quick start: classify an image
  
 1. Install the project (see [Setup](#setup)).
-2. Download `best_resnet18_finetune.pth` from the [v0.1.0 release](https://github.com/nataliagalanalv/flower-classifier/releases/tag/v0.1.0) and place it in the `outputs/` folder. The SHA256 of the file is listed in the release notes, so you can verify the download.
+2. Download `best_resnet18_finetune.pth` from the [latest release](https://github.com/nataliagalanalv/flower-classifier/releases/latest) and place it in the `outputs/` folder. The SHA256 of the file is listed in the release notes, so you can verify the download.
 3. Run the predictor on any image:
 ```powershell
    python -m flower_classifier.predict photo.jpg
