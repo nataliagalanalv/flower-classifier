@@ -68,7 +68,7 @@ MODELS = {
     "resnet18-ft": ModelConfig(
         build_model=build_resnet18_finetune, trainable_params=_finetune_params,
         img_size=RESNET_INPUT_SIZE, epochs=20, lr=1e-3, weight_decay=0.0,
-        best_ckpt="best_resnet18_finetune.pth", final_ckpt="resnet18_finetune_final_wd.pth",
+        best_ckpt="best_resnet18_finetune.pth", final_ckpt="resnet18_finetune_final.pth",
     ),
 }
 
