@@ -61,8 +61,13 @@ flower-classifier/
 │   └── testing.md
 ├── tests/                          # pytest suite
 │   ├── test_class_names.py         # idx_to_name mapping logic
+│   ├── test_engine.py              # train_one_epoch / evaluate on toy data (weight updates, modes, exact metrics)
+│   ├── test_gpu.py                 # engine on CUDA (skipped when no GPU is available)
 │   ├── test_model.py               # SimpleCNN output shape
-│   └── test_model_transfer.py      # ResNet18 layer freezing + output shape
+│   ├── test_model_transfer.py      # ResNet18 layer freezing + output shape
+│   ├── test_predict.py             # predict_top_k with a fake model (ordering, probabilities, non-RGB images)
+│   ├── test_train.py               # model registry, CLI parsing and main() wiring
+│   └── test_transforms.py          # output shapes, determinism, normalization
 ├── data/                           # dataset (downloaded automatically, gitignored)
 └── outputs/                        # checkpoints (.pth, gitignored; published as a GitHub Release) and confusion_matrix.png
 ```
@@ -130,8 +135,8 @@ Full breakdown, per-class accuracy, and the most frequent misclassifications are
  
 ## Testing
  
-The project includes a pytest suite covering model architecture shapes, the correctness of layer freezing/unfreezing in transfer learning, and the class-index-to-name mapping logic. It deliberately does not test the training loops themselves (slow, non-deterministic, and requires data/GPU) — see [`docs/testing.md`](./docs/testing.md) for the full rationale and a breakdown of each test.
- 
+The project includes a pytest suite (52 tests) covering model architecture shapes, layer freezing in transfer learning, the class-index-to-name mapping, the training/evaluation loops (`engine.py`), the image transforms, top-k prediction, and the model registry and CLI of `train.py`. It does not run real training (slow, non-deterministic, needs the dataset); instead, the loops are tested on tiny synthetic data and fake models. See [`docs/testing.md`](./docs/testing.md) for the full rationale, a breakdown of each test and what is not covered.
+
 Run the suite from the project root:
  
 ```powershell
