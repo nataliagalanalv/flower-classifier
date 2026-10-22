@@ -4,7 +4,9 @@ from pathlib import Path
 
 import torch
 from fastapi import FastAPI, Query, Request, UploadFile, File, HTTPException
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from flower_classifier.model_transfer import load_finetuned_model
 from flower_classifier.predict import DEFAULT_CHECKPOINT, predict_top_k
@@ -33,6 +35,8 @@ async def lifespan(app: FastAPI):
 
 # The application object; uvicorn will look for this name
 app = FastAPI(title="Flower Classifier API", lifespan=lifespan)
+APP_DIR = Path(__file__).parent
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 
 @app.get("/health")
@@ -42,6 +46,7 @@ def health(request: Request) -> dict:
         "status": "ok",
         "model_loaded": hasattr(request.app.state, "model"),
     }
+
 
 @app.post("/predict")
 def predict(
@@ -61,3 +66,8 @@ def predict(
 
     results = predict_top_k(request.app.state.model, image, request.app.state.device, k=top_k)
     return {"predictions": [{"name": name, "probability": float(prob)} for name, prob in results]}
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    return FileResponse(APP_DIR / "templates" / "index.html")
