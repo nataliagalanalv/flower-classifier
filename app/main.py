@@ -3,10 +3,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import torch
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request, UploadFile, File, HTTPException
+from PIL import Image, UnidentifiedImageError
 
 from flower_classifier.model_transfer import load_finetuned_model
-from flower_classifier.predict import DEFAULT_CHECKPOINT
+from flower_classifier.predict import DEFAULT_CHECKPOINT, predict_top_k
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,3 +42,22 @@ def health(request: Request) -> dict:
         "status": "ok",
         "model_loaded": hasattr(request.app.state, "model"),
     }
+
+@app.post("/predict")
+def predict(
+        request: Request,
+        file: UploadFile = File(...),
+        top_k: int = Query(5, ge=1, le=102),   # 102 = number of classes
+        ) -> dict:
+    """Classify a flower image and return the top-k predictions."""
+    if not hasattr(request.app.state, "model"):
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    try:
+        image = Image.open(file.file)
+        image.load()   # force decoding here so corrupt files fail as 400, not 500
+    except OSError:
+        raise HTTPException(status_code=400, detail="Invalid image file")
+
+    results = predict_top_k(request.app.state.model, image, request.app.state.device, k=top_k)
+    return {"predictions": [{"name": name, "probability": float(prob)} for name, prob in results]}
