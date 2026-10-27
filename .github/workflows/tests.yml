@@ -19,7 +19,7 @@ jobs:
         run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install the project
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,api]"
 
       - name: Cache ImageNet weights
         uses: actions/cache@v4

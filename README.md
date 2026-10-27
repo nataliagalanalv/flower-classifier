@@ -54,12 +54,19 @@ flower-classifier/
 │       └── resources/
 │           ├── cat_to_name.json          # class index -> flower name (see "Notes on data sources")
 │           └── LICENSE-cat_to_name.txt   # license notice for that file
-├── app/                            # FastAPI demo server (planned: local image upload + classification)
+├── app/                            # FastAPI web app: upload an image, get the top predictions
+│   ├── main.py                     # API: GET /, GET /health, POST /predict (model loaded once at startup)
+│   ├── static/
+│   │   ├── app.js                  # page logic: JavaScript with JSDoc types, no build step
+│   │   └── style.css
+│   └── templates/
+│       └── index.html              # the web page
 ├── docs/
 │   ├── analysis_results.md
 │   ├── results.md
 │   └── testing.md
 ├── tests/                          # pytest suite
+│   ├── test_api.py                 # FastAPI endpoints with a fake model (valid/invalid input, startup failures)
 │   ├── test_class_names.py         # idx_to_name mapping logic
 │   ├── test_engine.py              # train_one_epoch / evaluate on toy data (weight updates, modes, exact metrics)
 │   ├── test_gpu.py                 # engine on CUDA (skipped when no GPU is available)
@@ -92,9 +99,9 @@ Tested with Python 3.14 on Windows 11 with an NVIDIA GPU (CUDA 12.6). The CI run
    > print(torch.__version__, torch.cuda.is_available())
    > ```
  
-3. Install the project and its dependencies as an editable package (needed for the internal imports to resolve and for running modules with `python -m`). The `dev` extra adds `pytest`:
+3. Install the project and its dependencies as an editable package (needed for the internal imports to resolve and for running modules with `python -m`). The `dev` extra adds `pytest` and the HTTP client used to test the API; the `api` extra adds FastAPI and the `uvicorn` server for the [web app](#web-app):
 ```powershell
-   pip install -e ".[dev]"
+   pip install -e ".[dev,api]"
 ```
  
 ## Training and evaluation
@@ -123,6 +130,36 @@ Each model has its own defaults (epochs, learning rate, weight decay), which can
  
 > No random seed is fixed in this project, so retraining gives slightly different numbers from those in `docs/results.md`.
  
+## Web app
+
+A small FastAPI server wraps the same model: open a page, upload a photo and see the top predictions. It needs the `api` extra (see [Setup](#setup)) and the checkpoint `outputs/best_resnet18_finetune.pth` (see [Quick start](#quick-start-classify-an-image)).
+
+```powershell
+uvicorn app.main:app
+```
+
+Run it from the project root and open <http://127.0.0.1:8000>. The interactive API documentation that FastAPI generates is at <http://127.0.0.1:8000/docs>. Add `--reload` while developing.
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /` | The web page: upload an image and see the ranked predictions. |
+| `GET /health` | `{"status": "ok", "model_loaded": true}`. Meant for health checks. |
+| `POST /predict?top_k=5` | Takes an image as multipart form data (field `file`) and returns the top-k predictions as JSON. `top_k` goes from 1 to 102 (default 5). |
+
+Example, from the command line (probabilities rounded here):
+
+```powershell
+curl.exe -F "file=@photo.jpg" "http://127.0.0.1:8000/predict?top_k=3"
+```
+
+```json
+{"predictions": [{"name": "barbeton daisy", "probability": 0.8558}, {"name": "carnation", "probability": 0.0334}, {"name": "tree mallow", "probability": 0.0151}]}
+```
+
+Errors: `400` if the file is not a valid image, `422` if `top_k` is out of range or the file is missing, `503` if the model is not loaded.
+
+The model is loaded once, when the server starts. If the checkpoint is missing or cannot be loaded, the server refuses to start and the message says which file it looked for. To use a checkpoint stored elsewhere, set the `CHECKPOINT_PATH` environment variable (in PowerShell: `$env:CHECKPOINT_PATH = "path\to\file.pth"`).
+
 ## Approach summary
  
 | Approach | Trainable params | Val Accuracy | Test Accuracy |
@@ -135,7 +172,7 @@ Full breakdown, per-class accuracy, and the most frequent misclassifications are
  
 ## Testing
  
-The project includes a pytest suite (52 tests) covering model architecture shapes, layer freezing in transfer learning, the class-index-to-name mapping, the training/evaluation loops (`engine.py`), the image transforms, top-k prediction, and the model registry and CLI of `train.py`. It does not run real training (slow, non-deterministic, needs the dataset); instead, the loops are tested on tiny synthetic data and fake models. See [`docs/testing.md`](./docs/testing.md) for the full rationale, a breakdown of each test and what is not covered.
+The project includes a pytest suite (65 tests) covering model architecture shapes, layer freezing in transfer learning, the class-index-to-name mapping, the training/evaluation loops (`engine.py`), the image transforms, top-k prediction, the model registry and CLI of `train.py`, and the FastAPI endpoints (valid and invalid requests, startup failures). It does not run real training (slow, non-deterministic, needs the dataset); instead, the loops are tested on tiny synthetic data and fake models, and the API tests use a fake model, so they need no checkpoint. See [`docs/testing.md`](./docs/testing.md) for the full rationale, a breakdown of each test and what is not covered.
 
 Run the suite from the project root:
  
