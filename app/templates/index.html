@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flower Classifier</title>
+  <meta name="description" content="Upload a flower photo and get the most likely species out of 102, using a fine-tuned ResNet18.">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="hero__inner">
+      <p class="eyebrow">Oxford 102 Flowers &middot; ResNet18 fine-tuned</p>
+      <h1>Flower Classifier</h1>
+      <p class="lead">
+        Upload a photo of a flower and the model will suggest the most likely
+        species out of 102 it has learned.
+      </p>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card" aria-labelledby="upload-title">
+      <h2 id="upload-title"><span class="step step--indigo">1</span> Choose an image</h2>
+
+      <form id="predict-form" novalidate>
+        <label class="dropzone" id="dropzone" for="file-input">
+          <input class="visually-hidden" type="file" id="file-input" accept="image/*">
+          <img id="preview" class="dropzone__preview" alt="Preview of the selected image" hidden>
+          <span class="dropzone__text" id="dropzone-text">
+            <strong>Drop an image here</strong> or click to browse
+            <small>JPG or PNG work best</small>
+          </span>
+        </label>
+
+        <div class="controls">
+          <label class="field" for="top-k">
+            <span>Predictions to show</span>
+            <select id="top-k">
+              <option value="3">Top 3</option>
+              <option value="5" selected>Top 5</option>
+              <option value="10">Top 10</option>
+            </select>
+          </label>
+
+          <button type="submit" id="submit" class="button" disabled>Classify flower</button>
+        </div>
+      </form>
+
+      <p id="message" class="message" role="status" aria-live="polite" hidden></p>
+    </section>
+
+    <section class="card" aria-labelledby="results-title">
+      <h2 id="results-title"><span class="step step--teal">2</span> Results</h2>
+
+      <p id="results-empty" class="muted">
+        Your predictions will appear here once you classify an image.
+      </p>
+      <ol id="results" class="results" aria-live="polite" hidden></ol>
+
+      <p class="note">
+        The percentages are the model's confidence, not a guarantee. The model
+        only knows 102 flower species, so an image of anything else will still
+        get a prediction.
+      </p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Built with PyTorch and FastAPI &middot; 87.87% accuracy on the held-out test set
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
