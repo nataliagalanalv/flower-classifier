@@ -185,7 +185,7 @@ Without the checkpoint, the container exits at startup with a `Checkpoint not fo
 Design decisions:
 
 - **Base image:** `python:3.14-slim`, the same Python version as the CI.
-- **CPU-only PyTorch:** installed from the PyTorch CPU index to keep the image smaller (about 437 MB compressed, about 2 GB on disk).
+- **CPU-only PyTorch:** installed from the PyTorch CPU index to keep the image smaller (about 445 MB compressed, about 2 GB on disk).
 - **Model outside the image:** it is provided at runtime, so a new model does not require rebuilding the image.
 - **Non-root user:** the app does not run as root inside the container.
 - **`.dockerignore`:** keeps the build context at about 66 KB instead of 660+ MB (dataset, checkpoints, virtual environment, tests and docs are excluded).
