@@ -36,6 +36,8 @@ flower-classifier/
 ├── .github/
 │   └── workflows/
 │       └── tests.yml              # CI: runs pytest on every push to main and on pull requests
+├── .dockerignore                  # keeps the Docker build context small (excludes data/, outputs/, venv, tests, docs)
+├── Dockerfile                     # image of the web app: python:3.14-slim, CPU-only PyTorch, non-root user
 ├── pyproject.toml                 # package metadata and dependencies (src-layout, setuptools)
 ├── src/
 │   └── flower_classifier/
@@ -159,6 +161,53 @@ curl.exe -F "file=@photo.jpg" "http://127.0.0.1:8000/predict?top_k=3"
 Errors: `400` if the file is not a valid image, `422` if `top_k` is out of range or the file is missing, `503` if the model is not loaded.
 
 The model is loaded once, when the server starts. If the checkpoint is missing or cannot be loaded, the server refuses to start and the message says which file it looked for. To use a checkpoint stored elsewhere, set the `CHECKPOINT_PATH` environment variable (in PowerShell: `$env:CHECKPOINT_PATH = "path\to\file.pth"`).
+
+## Docker
+
+The web app can also run in a container, so it works the same on any machine with Docker. It needs the checkpoint `outputs/best_resnet18_finetune.pth` (see [Quick start](#quick-start-classify-an-image)), which is deliberately **not** baked into the image.
+
+```powershell
+docker build -t flower-classifier .
+docker run --rm -p 8000:8000 -v "${PWD}\outputs:/models" -e CHECKPOINT_PATH=/models/best_resnet18_finetune.pth flower-classifier
+```
+
+On Linux or macOS, replace the volume with `-v "$(pwd)/outputs:/models"`. Then open <http://localhost:8000>; the endpoints are the ones described in [Web app](#web-app).
+
+| Flag | Purpose |
+| --- | --- |
+| `--rm` | Remove the container when it stops. |
+| `-p 8000:8000` | Publish the container port on your machine. |
+| `-v ...:/models` | Mount your local `outputs/` folder inside the container. |
+| `-e CHECKPOINT_PATH=...` | Tell the app where the model file is. |
+
+Without the checkpoint, the container exits at startup with a `Checkpoint not found` error, same as running the server locally.
+
+Design decisions:
+
+- **Base image:** `python:3.14-slim`, the same Python version as the CI.
+- **CPU-only PyTorch:** installed from the PyTorch CPU index to keep the image smaller (about 437 MB compressed, about 2 GB on disk).
+- **Model outside the image:** it is provided at runtime, so a new model does not require rebuilding the image.
+- **Non-root user:** the app does not run as root inside the container.
+- **`.dockerignore`:** keeps the build context at about 66 KB instead of 660+ MB (dataset, checkpoints, virtual environment, tests and docs are excluded).
+
+### Vulnerability scanning
+
+The image is scanned with [Trivy](https://trivy.dev/) v0.76.1, run from its official container image. The image is exported to a file first, so the scanner does not need access to the Docker socket:
+
+```powershell
+docker save flower-classifier:latest -o $env:TEMP\scan\flower-classifier.tar
+docker run --rm -v "$env:TEMP\scan:/scan:ro" -v trivy-cache:/root/.cache/ ghcr.io/aquasecurity/trivy:0.76.1 image --input /scan/flower-classifier.tar --scanners vuln --severity HIGH,CRITICAL --timeout 15m
+```
+
+Results on 2026-10-28 (HIGH and CRITICAL only):
+
+| | Before | After |
+| --- | --- | --- |
+| Python packages | 37 (5 critical) | 9 (0 critical) |
+| Pillow | 28 | 0 |
+| Debian base image | 44 (no fix available) | 44 (no fix available) |
+
+The Pillow findings were fixed by upgrading to 13.0.0, since Pillow decodes the images users upload. The remaining ones are in the Debian base image (no patched package published yet) and in build tooling not used at runtime (`setuptools`, `wheel`, `filelock` and packages bundled inside `pip`). A scan reports known vulnerabilities in packages; it does not by itself prove security or regulatory compliance.
 
 ## Approach summary
  
