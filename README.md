@@ -1,22 +1,23 @@
 # Flower Classifier (Oxford 102 Flowers)
- 
+
 ![tests](https://github.com/nataliagalanalv/flower-classifier/actions/workflows/tests.yml/badge.svg)
- 
+![security](https://github.com/nataliagalanalv/flower-classifier/actions/workflows/security.yml/badge.svg)
+
 Image classifier for the [Oxford 102 Flowers](https://www.robots.ox.ac.uk/~vgg/data/flowers/102/) dataset, built with PyTorch. Compares a convolutional neural network trained from scratch against transfer learning with ResNet18 (feature extraction and fine-tuning).
- 
+
 **Best result: 87.87% accuracy on the held-out test set**, using a fine-tuned ResNet18 (last residual block unfrozen). See [`docs/results.md`](./docs/results.md) for the full experiment log and [`docs/analysis_results.md`](./docs/analysis_results.md) for the write-up of findings and conclusions.
- 
+
 ## Quick start: classify an image
- 
+
 1. Install the project (see [Setup](#setup)).
 2. Download `best_resnet18_finetune.pth` from the [latest release](https://github.com/nataliagalanalv/flower-classifier/releases/latest) and place it in the `outputs/` folder. The SHA256 of the file is listed in the release notes, so you can verify the download.
 3. Run the predictor on any image:
 ```powershell
    python -m flower_classifier.predict photo.jpg
 ```
- 
+
 Example output (top-5 predictions, with the model's confidence):
- 
+
 ```
 pink primrose             86.8%
 petunia                   5.2%
@@ -24,20 +25,21 @@ bougainvillea             0.9%
 pelargonium               0.7%
 camellia                  0.5%
 ```
- 
+
 Use `--top-k N` to change how many classes are shown and `--checkpoint PATH` to use a different checkpoint.
- 
+
 > The percentages are the model's softmax confidence, not a calibrated probability of being right: neural networks tend to be more confident than their accuracy justifies, and an image that is not a flower will still get a prediction.
- 
+
 ## Project structure
- 
+
 ```
 flower-classifier/
 ├── .github/
 │   └── workflows/
-│       └── tests.yml              # CI: runs pytest on every push to main and on pull requests
+│       ├── tests.yml              # CI: runs pytest on every push to main and on pull requests
+│       └── security.yml           # CI: Trivy image scan and Checkov configuration scan (both blocking)
 ├── .dockerignore                  # keeps the Docker build context small (excludes data/, outputs/, venv, tests, docs)
-├── Dockerfile                     # image of the web app: python:3.14-slim, CPU-only PyTorch, non-root user
+├── Dockerfile                     # image of the web app: python:3.14-slim, CPU-only PyTorch, non-root user, HEALTHCHECK
 ├── pyproject.toml                 # package metadata and dependencies (src-layout, setuptools)
 ├── src/
 │   └── flower_classifier/
@@ -64,8 +66,10 @@ flower-classifier/
 │   └── templates/
 │       └── index.html              # the web page
 ├── docs/
+│   ├── images/                     # screenshots used as evidence in this README
 │   ├── analysis_results.md
 │   ├── results.md
+│   ├── security.md                 
 │   └── testing.md
 ├── tests/                          # pytest suite
 │   ├── test_api.py                 # FastAPI endpoints with a fake model (valid/invalid input, startup failures)
@@ -80,17 +84,17 @@ flower-classifier/
 ├── data/                           # dataset (downloaded automatically, gitignored)
 └── outputs/                        # checkpoints (.pth, gitignored; published as a GitHub Release) and confusion_matrix.png
 ```
- 
+
 ## Setup
- 
+
 Tested with Python 3.14 on Windows 11 with an NVIDIA GPU (CUDA 12.6). The CI runs on Ubuntu with CPU-only PyTorch, also on Python 3.14.
- 
+
 1. Create and activate a virtual environment:
 ```powershell
    python -m venv venv
    venv\Scripts\Activate.ps1
 ```
- 
+
 2. Install PyTorch with CUDA support **first**, using the official selector at [pytorch.org/get-started/locally](https://pytorch.org/get-started/locally/) — the exact command depends on your GPU driver's supported CUDA version. Example:
 ```powershell
    pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu126
@@ -100,38 +104,38 @@ Tested with Python 3.14 on Windows 11 with an NVIDIA GPU (CUDA 12.6). The CI run
    > import torch
    > print(torch.__version__, torch.cuda.is_available())
    > ```
- 
+
 3. Install the project and its dependencies as an editable package (needed for the internal imports to resolve and for running modules with `python -m`). The `dev` extra adds `pytest` and the HTTP client used to test the API; the `api` extra adds FastAPI and the `uvicorn` server for the [web app](#web-app):
 ```powershell
    pip install -e ".[dev,api]"
 ```
- 
+
 ## Training and evaluation
- 
+
 Run these from the project root. The dataset downloads automatically on first run into `data/`.
- 
+
 ```powershell
 # 1. (Optional) Explore the raw dataset
 python -m flower_classifier.explore_data
- 
+
 # 2. Train a model. Choose one with --model:
 python -m flower_classifier.train --model cnn           # CNN from scratch
 python -m flower_classifier.train --model resnet18-fe   # ResNet18, backbone frozen (feature extraction)
 python -m flower_classifier.train --model resnet18-ft   # ResNet18, layer4 unfrozen (fine-tuning)
- 
+
 # 3. Evaluate the fine-tuned model on the held-out test split
 python -m flower_classifier.evaluate
- 
+
 # 4. Error analysis: confusion matrix, per-class accuracy, hardest classes
 python -m flower_classifier.confusion_analysis
 ```
- 
+
 Each model has its own defaults (epochs, learning rate, weight decay), which can be overridden with `--epochs`, `--lr`, `--weight-decay` and `--output-dir`. Run `python -m flower_classifier.train --help` for the details.
- 
+
 `evaluate` and `confusion_analysis` read `outputs/best_resnet18_finetune.pth` by default (`--checkpoint` to change it): either train it with `--model resnet18-ft` or download it from the release.
- 
+
 > No random seed is fixed in this project, so retraining gives slightly different numbers from those in `docs/results.md`.
- 
+
 ## Web app
 
 A small FastAPI server wraps the same model: open a page, upload a photo and see the top predictions. It needs the `api` extra (see [Setup](#setup)) and the checkpoint `outputs/best_resnet18_finetune.pth` (see [Quick start](#quick-start-classify-an-image)).
@@ -188,54 +192,92 @@ Design decisions:
 - **CPU-only PyTorch:** installed from the PyTorch CPU index to keep the image smaller (about 445 MB compressed, about 2 GB on disk).
 - **Model outside the image:** it is provided at runtime, so a new model does not require rebuilding the image.
 - **Non-root user:** the app does not run as root inside the container.
+- **Health check:** a `HEALTHCHECK` calls `/health` with Python (the slim image has no `curl`). `--start-period=30s` leaves time to load PyTorch and the model; `docker ps` shows `(healthy)` once the app answers.
 - **`.dockerignore`:** keeps the build context at about 66 KB instead of 660+ MB (dataset, checkpoints, virtual environment, tests and docs are excluded).
 
 ### Vulnerability scanning
 
-The image is scanned with [Trivy](https://trivy.dev/) v0.76.1, run from its official container image. The image is exported to a file first, so the scanner does not need access to the Docker socket:
+The image is scanned with [Trivy](https://trivy.dev/) v0.76.1, run from its official container image. The image is exported to a file first, so the scanner does not need access to the Docker socket. Build without cache so an old cached layer does not keep outdated dependency versions:
 
 ```powershell
+docker build --no-cache -t flower-classifier .
 docker save flower-classifier:latest -o $env:TEMP\scan\flower-classifier.tar
-docker run --rm -v "$env:TEMP\scan:/scan:ro" -v trivy-cache:/root/.cache/ ghcr.io/aquasecurity/trivy:0.76.1 image --input /scan/flower-classifier.tar --scanners vuln --severity HIGH,CRITICAL --timeout 15m
+docker run --rm -v "$env:TEMP\scan:/scan:ro" -v trivy-cache:/root/.cache/ ghcr.io/aquasecurity/trivy:0.76.1 image --input /scan/flower-classifier.tar --scanners vuln --severity HIGH,CRITICAL --timeout 30m
 ```
 
-Results on 2026-10-28 (HIGH and CRITICAL only):
+Results (HIGH and CRITICAL only; date of the last scan: 2026-10-29):
 
-| | Before | After |
-| --- | --- | --- |
-| Python packages | 37 (5 critical) | 9 (0 critical) |
-| Pillow | 28 | 0 |
-| Debian base image | 44 (no fix available) | 44 (no fix available) |
+| | Initial | After Pillow 13 | After removing `pip` and `setuptools` |
+| --- | --- | --- | --- |
+| Python packages | 37 (5 critical) | 9 (0 critical) | 0 |
+| Pillow | 28 | 0 | 0 |
+| Debian base image | 44 (no fix available) | 44 (no fix available) | 44 (no fix available) |
 
-The Pillow findings were fixed by upgrading to 13.0.0, since Pillow decodes the images users upload. The remaining ones are in the Debian base image (no patched package published yet) and in build tooling not used at runtime (`setuptools`, `wheel`, `filelock` and packages bundled inside `pip`). A scan reports known vulnerabilities in packages; it does not by itself prove security or regulatory compliance.
+Two changes removed the Python findings. Upgrading Pillow to 13.0.0 fixed 28 of them (Pillow decodes the images users upload). The remaining 9 were in packaging tools that the running app does not need, so the `Dockerfile` uninstalls `pip` and `setuptools` after installing the project. The trade-off is that nothing can be installed inside a running container, which is the normal practice for immutable images. The image must also be built without a stale cache (`--no-cache`), as CI does by building from scratch.
 
-The scan is blocking in CI. To verify it, [PR #9](https://github.com/nataliagalanalv/flower-classifier/pull/9) (closed, never merged) pinned the vulnerable Pillow 12.3.0 on purpose: the `security` check failed with exit code 1 and the Pillow findings, while `tests` passed.
+The 44 Debian findings are in the base image and have no patched package yet. A scan reports known vulnerabilities in packages; it does not by itself prove security or regulatory compliance.
+
+The scan is blocking in CI (`security.yml`, job `trivy-image`): it builds the image from scratch, scans it with `--severity HIGH,CRITICAL --ignore-unfixed` and fails with exit code 1 if it finds anything. `--ignore-unfixed` hides findings that have no patched version yet, since nothing can be done about them in this repository. That is why the Debian findings above do not block the pipeline: they are an accepted risk, to be reviewed when the base image changes. The local command above does not use `--ignore-unfixed`, so it shows everything. The Trivy version is fixed (v0.76.1) and the GitHub Actions are pinned by commit SHA.
+
+To verify the gate, [PR #9](https://github.com/nataliagalanalv/flower-classifier/pull/9) (closed, never merged) pinned the vulnerable Pillow 12.3.0 on purpose: the `security` check failed with exit code 1 and the Pillow findings, while `tests` passed.
 
 ![Pull request blocked by the Trivy scan](docs/images/trivy-gate-blocked.png)
 
+![Trivy log: scan fails with exit code 1](docs/images/trivy-gate-blocked-log.png)
+
+### Configuration scanning
+
+[Checkov](https://www.checkov.io/) 3.4.0 checks the `Dockerfile` and the GitHub Actions workflows against its built-in rules (for example: a `HEALTHCHECK` exists, the container does not run as root, the base image is not `latest`, the workflow token has restricted permissions). Trivy looks at what is inside the image; Checkov looks at how the image and the pipeline are configured. It runs from its official container image, pinned by digest, in two separate steps (one per target):
+
+```powershell
+docker run --rm --volume "${PWD}:/src:ro" --workdir /src bridgecrew/checkov@sha256:ece5efac4443084ca273072909985dce988a81e8cc94faa305aeda0df27c68f9 --file /src/Dockerfile
+docker run --rm --volume "${PWD}:/src:ro" --workdir /src bridgecrew/checkov@sha256:ece5efac4443084ca273072909985dce988a81e8cc94faa305aeda0df27c68f9 --directory /src/.github/workflows
+```
+
+The first run reported two findings, both fixed:
+
+| Check | Where | Fix |
+| --- | --- | --- |
+| `CKV_DOCKER_2` (no `HEALTHCHECK`) | `Dockerfile` | Added a `HEALTHCHECK` on `/health`. |
+| `CKV2_GHA_1` (no top-level permissions) | `tests.yml` | Added `permissions: contents: read`. |
+
+Current result: `Dockerfile` 82 passed, 0 failed; workflows 68 passed, 0 failed; no checks skipped. The job is blocking in CI.
+
+The gate was verified with a negative test: [PR #13](https://github.com/nataliagalanalv/flower-classifier/pull/13) (closed, never merged) removed the `HEALTHCHECK` and the `checkov` job failed with `CKV_DOCKER_2`, while `tests` and `trivy-image` passed.
+
+![Pull request blocked by the Checkov scan](docs/images/checkov-gate-blocked.png)
+
+![Checkov log: CKV_DOCKER_2 failed](docs/images/checkov-gate-blocked-log.png)
+
+A first version of the job passed both targets in a single command and silently scanned only the workflows: the CI log had no `dockerfile scan results` block, so removing the `HEALTHCHECK` did not fail the check. It was found because the negative test stayed green, and fixed in [PR #14](https://github.com/nataliagalanalv/flower-classifier/pull/14) by splitting the scan into one step per target. A green check does not show what was scanned, so the job log is part of the review.
+
+A clean result means the rules Checkov knows passed; it does not prove the pipeline is secure or compliant. For example, pinning actions by commit SHA is done by hand here, and no rule about it appeared in the output.
+
+Accepted risks, known gaps and next steps are documented in [`docs/security.md`](./docs/security.md).
+
 ## Approach summary
- 
+
 | Approach | Trainable params | Val Accuracy | Test Accuracy |
 | --- | --- | --- | --- |
 | CNN from scratch | ~11.2M (100%) | 37.65% | — |
 | ResNet18 feature extraction | 52,326 (0.47%) | 79.22% | — |
 | **ResNet18 fine-tuning** (`layer4` + `fc`) | 8,446,054 (~75%) | 90.78% | **87.87%** |
- 
+
 Full breakdown, per-class accuracy, and the most frequent misclassifications are in [`docs/results.md`](./docs/results.md). Interpretation of why transfer learning wins here, the effect (or lack thereof) of weight_decay, and dataset-imbalance caveats are in [`docs/analysis_results.md`](./docs/analysis_results.md).
- 
+
 ## Testing
- 
+
 The project includes a pytest suite (65 tests) covering model architecture shapes, layer freezing in transfer learning, the class-index-to-name mapping, the training/evaluation loops (`engine.py`), the image transforms, top-k prediction, the model registry and CLI of `train.py`, and the FastAPI endpoints (valid and invalid requests, startup failures). It does not run real training (slow, non-deterministic, needs the dataset); instead, the loops are tested on tiny synthetic data and fake models, and the API tests use a fake model, so they need no checkpoint. See [`docs/testing.md`](./docs/testing.md) for the full rationale, a breakdown of each test and what is not covered.
 
 Run the suite from the project root:
- 
+
 ```powershell
 pytest -v
 ```
- 
-The same suite runs automatically on GitHub Actions for every push to `main` and every pull request, in a clean environment with CPU-only PyTorch.
- 
+
+The same suite runs automatically on GitHub Actions for every push to `main` and every pull request, in a clean environment with CPU-only PyTorch. The `security` workflow (Trivy and Checkov, see [Docker](#docker)) runs on the same events.
+
 ## Notes on data sources
- 
+
 - Class names (flower species) come from a community-maintained `cat_to_name.json` mapping, not an official torchvision/Oxford source — treat names as approximate; the numeric class index (0–101) is the reliable reference. See [`docs/analysis_results.md`](./docs/analysis_results.md) for a known inconsistency found in this file.
 - The `cat_to_name.json` file originates from Udacity's [`aipnd-project`](https://github.com/udacity/aipnd-project) repository, released under the MIT license. The license notice is kept in [`src/flower_classifier/resources/LICENSE-cat_to_name.txt`](./src/flower_classifier/resources/LICENSE-cat_to_name.txt).

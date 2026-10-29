@@ -205,6 +205,8 @@ Que un test pase no demuestra que sirva: un test que nunca puede fallar no prote
 | Quitar `.convert("RGB")` de `predict_top_k` | `test_accepts_non_rgb_images` (`L` y `RGBA`) | Errores de forma: 1 canal frente a 3 medias en escala de grises, y 4 frente a 3 con transparencia. |
 | Quitar `ge=1` del parámetro `top_k` de `/predict` | `test_top_k_out_of_bounds[0]` | `assert 200 == 422`: sin el límite inferior, `top_k=0` se aceptaba. El caso `[103]` siguió pasando, porque `le=102` seguía en su sitio. |
 | Cambiar `except OSError` por `except UnidentifiedImageError` en `/predict` | `test_check_corrupt_image` | `OSError: Truncated File Read`: la imagen truncada ya no se captura y el error sale del endpoint (`TestClient` lo vuelve a lanzar dentro del test). `UnidentifiedImageError` hereda de `OSError`, pero el fallo al decodificar una imagen truncada es un `OSError` a secas. |
+
+El mismo principio se aplicó a las puertas de seguridad del CI (Trivy y Checkov): se comprobó que fallan cuando deben, con PR de prueba que no se fusionan. Ver [security.md](./security.md#pruebas-negativas-de-las-puertas).
  
 ## Qué no cubren los tests
  
@@ -214,6 +216,7 @@ Que un test pase no demuestra que sirva: un test que nunca puede fallar no prote
 - **La GPU en la integración continua.** Los tests de CUDA solo se ejecutan en una máquina con GPU; en GitHub Actions se saltan.
 - **La API con el modelo real.** Los tests de la API usan un modelo falso: comprueban el contrato (códigos de estado, formato de la respuesta, validación de la entrada), no que las predicciones sean acertadas.
 - **La página web.** El JavaScript (`app.js`) no tiene tests automáticos; se comprobó a mano en el navegador.
+- **El contenedor en ejecución.** El CI construye la imagen y la escanea (Trivy), pero no la arranca. Que el contenedor arranque, que `/health` responda y que el `HEALTHCHECK` lo marque como `healthy` se comprobó a mano con `docker run` y `docker ps`.
 
 ## Cómo se resuelven los imports
  
@@ -242,3 +245,5 @@ Resultado esperado: 65 tests recogidos, en pocos segundos (unos 8 en la máquina
 Los mismos tests se ejecutan automáticamente en GitHub Actions (`.github/workflows/tests.yml`) en cada `push` a `main` y en cada Pull Request. El workflow instala el proyecto (`pip install -e ".[dev,api]"`) en una máquina Linux limpia, con PyTorch solo para CPU, y lanza `pytest -v`. Esto detecta problemas que en un entorno local pueden pasar desapercibidos, como una dependencia que falta en `pyproject.toml`. Para acelerar las ejecuciones, se guarda en caché la descarga de los pesos de ImageNet que necesita `test_model_transfer.py`.
  
 Como esa máquina no tiene GPU, el resultado esperado allí es **62 pasados y 3 saltados**.
+
+El workflow de tests solo recibe permisos de lectura sobre el repositorio (`permissions: contents: read`) y sus acciones están fijadas por hash de commit. Los análisis de seguridad no viven aquí: están en otro workflow, `security.yml` (Trivy sobre la imagen y Checkov sobre el `Dockerfile` y los workflows), que se ejecuta en los mismos eventos. Ver [security.md](./security.md).
