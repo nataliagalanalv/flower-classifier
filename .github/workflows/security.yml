@@ -1,0 +1,32 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: this workflow only needs to read the repository
+permissions:
+  contents: read
+
+jobs:
+  trivy-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Build the image
+        run: docker build -t flower-classifier:${{ github.sha }} .
+
+      - name: Scan the image with Trivy
+        # Pinned by full commit SHA (tag v0.36.0), not by tag
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: flower-classifier:${{ github.sha }}
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          version: v0.76.1
+          exit-code: '0'   # report only for now; switch to '1' once the fixable findings are resolved
