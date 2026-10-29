@@ -30,3 +30,13 @@ jobs:
           ignore-unfixed: true
           version: v0.76.1
           exit-code: '1'   # block the PR when there are fixable HIGH/CRITICAL vulnerabilities
+  
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Scan Dockerfile and workflows with Checkov
+        run: |
+          docker run --rm --volume "$PWD:/src:ro" --workdir /src \
+            bridgecrew/checkov@sha256:ece5efac4443084ca273072909985dce988a81e8cc94faa305aeda0df27c68f9 \
+            --file /src/Dockerfile --directory /src/.github/workflows
