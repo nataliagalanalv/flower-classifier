@@ -25,10 +25,6 @@ RUN useradd --create-home appuser
 USER appuser
 
 EXPOSE 8000
-
-# Health check: /health answers 200 once the app is up (and the model is loaded)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
-    
+  
 # 0.0.0.0 is required: 127.0.0.1 would only be reachable from inside the container
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
