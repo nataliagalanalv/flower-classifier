@@ -16,6 +16,10 @@ RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/c
 COPY . .
 RUN pip install ".[api]"
 
+# Remove packaging tools that the app does not need at runtime
+# (they carry known vulnerabilities and widen the attack surface)
+RUN pip uninstall -y setuptools pip
+
 # Do not run as root inside the container
 RUN useradd --create-home appuser
 USER appuser

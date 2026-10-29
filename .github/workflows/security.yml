@@ -29,4 +29,4 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           version: v0.76.1
-          exit-code: '0'   # report only for now; switch to '1' once the fixable findings are resolved
+          exit-code: '1'   # block the PR when there are fixable HIGH/CRITICAL vulnerabilities
