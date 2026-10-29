@@ -209,6 +209,10 @@ Results on 2026-10-28 (HIGH and CRITICAL only):
 
 The Pillow findings were fixed by upgrading to 13.0.0, since Pillow decodes the images users upload. The remaining ones are in the Debian base image (no patched package published yet) and in build tooling not used at runtime (`setuptools`, `wheel`, `filelock` and packages bundled inside `pip`). A scan reports known vulnerabilities in packages; it does not by itself prove security or regulatory compliance.
 
+The scan is blocking in CI. To verify it, [PR #9](https://github.com/nataliagalanalv/flower-classifier/pull/9) (closed, never merged) pinned the vulnerable Pillow 12.3.0 on purpose: the `security` check failed with exit code 1 and the Pillow findings, while `tests` passed.
+
+![Pull request blocked by the Trivy scan](docs/images/trivy-gate-blocked.png)
+
 ## Approach summary
  
 | Approach | Trainable params | Val Accuracy | Test Accuracy |
