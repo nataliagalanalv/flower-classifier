@@ -9,6 +9,9 @@ DEFAULT_TOP_K = 5  # same default as the endpoint in app/main.py
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    monkeypatch.delenv("MODEL_S3_BUCKET", raising=False)
+    monkeypatch.delenv("MODEL_S3_KEY", raising=False)
+    monkeypatch.delenv("MODEL_SHA256", raising=False)
     # lifespan only checks that the checkpoint file exists, so an empty file is enough
     fake_checkpoint = tmp_path / "fake.pth"
     fake_checkpoint.write_bytes(b"")
@@ -110,6 +113,9 @@ def test_file_not_provided(client):
     assert response.status_code == 422
 
 def test_startup_fails_when_checkpoint_missing(monkeypatch, tmp_path):
+    monkeypatch.delenv("MODEL_S3_BUCKET", raising=False)
+    monkeypatch.delenv("MODEL_S3_KEY", raising=False)
+    monkeypatch.delenv("MODEL_SHA256", raising=False)
     # Without the "client" fixture: we want to see the startup itself fail
     monkeypatch.setenv("CHECKPOINT_PATH", str(tmp_path / "missing.pth"))
     with pytest.raises(FileNotFoundError, match="Checkpoint not found"):
@@ -118,6 +124,9 @@ def test_startup_fails_when_checkpoint_missing(monkeypatch, tmp_path):
 
 
 def test_startup_fails_when_model_cannot_be_loaded(tmp_path, monkeypatch):
+    monkeypatch.delenv("MODEL_S3_BUCKET", raising=False)
+    monkeypatch.delenv("MODEL_S3_KEY", raising=False)
+    monkeypatch.delenv("MODEL_SHA256", raising=False)
     # The file exists, but loading it fails (for example a corrupt checkpoint)
     checkpoint = tmp_path / "broken.pth"
     checkpoint.write_bytes(b"")
