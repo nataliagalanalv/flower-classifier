@@ -8,6 +8,7 @@ from PIL import Image
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.model_store import download_checkpoint
 from flower_classifier.model_transfer import load_finetuned_model
 from flower_classifier.predict import DEFAULT_CHECKPOINT, predict_top_k
 
@@ -17,6 +18,12 @@ async def lifespan(app: FastAPI):
     # The checkpoint path can be overridden with an environment variable
     # (useful in Docker/AWS, where the working directory is different).
     checkpoint = Path(os.environ.get("CHECKPOINT_PATH", DEFAULT_CHECKPOINT))
+    
+    bucket = os.environ.get("MODEL_S3_BUCKET")
+    key = os.environ.get("MODEL_S3_KEY")
+    if bucket and key:
+        download_checkpoint(bucket, key, checkpoint, os.environ.get("MODEL_SHA256"))
+
     if not checkpoint.is_file():
         raise FileNotFoundError(
             f"Checkpoint not found: {checkpoint.resolve()}. "

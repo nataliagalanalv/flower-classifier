@@ -20,6 +20,11 @@ RUN pip install ".[api]"
 # (they carry known vulnerabilities and widen the attack surface)
 RUN pip uninstall -y setuptools pip
 
+# Patch OS packages that have a fix newer than the base image (Trivy gate)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+    
 # Do not run as root inside the container
 RUN useradd --create-home appuser
 USER appuser
