@@ -60,16 +60,18 @@ flower-classifier/
 │           └── LICENSE-cat_to_name.txt   # license notice for that file
 ├── app/                            # FastAPI web app: upload an image, get the top predictions
 │   ├── main.py                     # API: GET /, GET /health, POST /predict (model loaded once at startup)
+│   ├── model_store.py              # optional download of the checkpoint from S3, with SHA-256 verification
 │   ├── static/
 │   │   ├── app.js                  # page logic: JavaScript with JSDoc types, no build step
 │   │   └── style.css
 │   └── templates/
 │       └── index.html              # the web page
 ├── docs/
-│   ├── images/                     # screenshots used as evidence in this README
+│   ├── images/                     # screenshots used as evidence in the docs
 │   ├── analysis_results.md
+│   ├── aws_manual_deployment.md    # manual proof of concept on ECS Fargate: setup, evidence, lessons
 │   ├── results.md
-│   ├── security.md                 
+│   ├── security.md
 │   └── testing.md
 ├── tests/                          # pytest suite
 │   ├── test_api.py                 # FastAPI endpoints with a fake model (valid/invalid input, startup failures)
@@ -77,6 +79,7 @@ flower-classifier/
 │   ├── test_engine.py              # train_one_epoch / evaluate on toy data (weight updates, modes, exact metrics)
 │   ├── test_gpu.py                 # engine on CUDA (skipped when no GPU is available)
 │   ├── test_model.py               # SimpleCNN output shape
+│   ├── test_model_store.py         # S3 download and SHA-256 check with a fake S3 client (no network, no AWS)
 │   ├── test_model_transfer.py      # ResNet18 layer freezing + output shape
 │   ├── test_predict.py             # predict_top_k with a fake model (ordering, probabilities, non-RGB images)
 │   ├── test_train.py               # model registry, CLI parsing and main() wiring
@@ -105,7 +108,7 @@ Tested with Python 3.14 on Windows 11 with an NVIDIA GPU (CUDA 12.6). The CI run
    > print(torch.__version__, torch.cuda.is_available())
    > ```
 
-3. Install the project and its dependencies as an editable package (needed for the internal imports to resolve and for running modules with `python -m`). The `dev` extra adds `pytest` and the HTTP client used to test the API; the `api` extra adds FastAPI and the `uvicorn` server for the [web app](#web-app):
+3. Install the project and its dependencies as an editable package (needed for the internal imports to resolve and for running modules with `python -m`). The `dev` extra adds `pytest` and the HTTP client used to test the API; the `api` extra adds FastAPI, the `uvicorn` server and `boto3` (used to load the model from S3) for the [web app](#web-app):
 ```powershell
    pip install -e ".[dev,api]"
 ```
@@ -138,7 +141,7 @@ Each model has its own defaults (epochs, learning rate, weight decay), which can
 
 ## Web app
 
-A small FastAPI server wraps the same model: open a page, upload a photo and see the top predictions. It needs the `api` extra (see [Setup](#setup)) and the checkpoint `outputs/best_resnet18_finetune.pth` (see [Quick start](#quick-start-classify-an-image)).
+A small FastAPI server wraps the same model: open a page, upload a photo and see the top predictions. It needs the `api` extra (see [Setup](#setup)) and the checkpoint `outputs/best_resnet18_finetune.pth` (see [Quick start](#quick-start-classify-an-image)), or the S3 settings described [below](#loading-the-model-from-s3-optional).
 
 ```powershell
 uvicorn app.main:app
@@ -166,6 +169,28 @@ Errors: `400` if the file is not a valid image, `422` if `top_k` is out of range
 
 The model is loaded once, when the server starts. If the checkpoint is missing or cannot be loaded, the server refuses to start and the message says which file it looked for. To use a checkpoint stored elsewhere, set the `CHECKPOINT_PATH` environment variable (in PowerShell: `$env:CHECKPOINT_PATH = "path\to\file.pth"`).
 
+### Loading the model from S3 (optional)
+
+Instead of a local file, the server can download the checkpoint from a private S3 bucket when it starts. This is how the [AWS deployment](#aws-deployment-manual-proof-of-concept) gets its model, so the model never has to be part of the container image.
+
+| Variable | Meaning |
+| --- | --- |
+| `MODEL_S3_BUCKET` | Name of the bucket. The download happens only if **both** this and `MODEL_S3_KEY` are set; otherwise the local file is used as described above. |
+| `MODEL_S3_KEY` | Key (path) of the checkpoint inside the bucket. |
+| `MODEL_SHA256` | Optional but recommended: the expected SHA-256 of the file. If it does not match, the downloaded file is deleted and the server refuses to start. |
+| `CHECKPOINT_PATH` | Where the checkpoint is read from, and where the download is saved. In the container use `/tmp/model.pth`: the app runs as a non-root user and cannot write to `/app`. |
+| `AWS_REGION` | Region used by `boto3`. |
+
+To get the hash of the file:
+
+```powershell
+Get-FileHash "outputs\best_resnet18_finetune.pth" -Algorithm SHA256
+```
+
+Any problem while downloading, verifying or loading the file stops the server at startup instead of letting it run without a model. The checkpoint is loaded with `weights_only=True`.
+
+Credentials come from the standard `boto3` credential chain. On AWS, the ECS task role provides them. Locally, any of the usual methods works. If you signed in with `aws login`, `boto3` also needs `pip install "botocore[crt]"`; it is not a project dependency, because in the cloud the role provides the credentials.
+
 ## Docker
 
 The web app can also run in a container, so it works the same on any machine with Docker. It needs the checkpoint `outputs/best_resnet18_finetune.pth` (see [Quick start](#quick-start-classify-an-image)), which is deliberately **not** baked into the image.
@@ -190,10 +215,11 @@ Design decisions:
 
 - **Base image:** `python:3.14-slim`, the same Python version as the CI.
 - **CPU-only PyTorch:** installed from the PyTorch CPU index to keep the image smaller (about 445 MB compressed, about 2 GB on disk).
-- **Model outside the image:** it is provided at runtime, so a new model does not require rebuilding the image.
+- **Model outside the image:** it is provided at runtime, from a mounted folder or from S3, so a new model does not require rebuilding the image.
 - **Non-root user:** the app does not run as root inside the container.
 - **Health check:** a `HEALTHCHECK` calls `/health` with Python (the slim image has no `curl`). `--start-period=30s` leaves time to load PyTorch and the model; `docker ps` shows `(healthy)` once the app answers.
 - **`.dockerignore`:** keeps the build context at about 66 KB instead of 660+ MB (dataset, checkpoints, virtual environment, tests and docs are excluded).
+- **Targeted OS patch:** a single `apt-get install --only-upgrade zlib1g` step upgrades one base-image package that had a fix available when the base image tag had not picked it up yet (see [Vulnerability scanning](#vulnerability-scanning)).
 
 ### Vulnerability scanning
 
@@ -205,17 +231,19 @@ docker save flower-classifier:latest -o $env:TEMP\scan\flower-classifier.tar
 docker run --rm -v "$env:TEMP\scan:/scan:ro" -v trivy-cache:/root/.cache/ ghcr.io/aquasecurity/trivy:0.76.1 image --input /scan/flower-classifier.tar --scanners vuln --severity HIGH,CRITICAL --timeout 30m
 ```
 
-Results (HIGH and CRITICAL only; date of the last scan: 2026-10-29):
+Results (HIGH and CRITICAL only; date of the last scan: 2026-11-17):
 
-| | Initial | After Pillow 13 | After removing `pip` and `setuptools` |
-| --- | --- | --- | --- |
-| Python packages | 37 (5 critical) | 9 (0 critical) | 0 |
-| Pillow | 28 | 0 | 0 |
-| Debian base image | 44 (no fix available) | 44 (no fix available) | 44 (no fix available) |
+| | Initial | After Pillow 13 | After removing `pip` and `setuptools` | After upgrading `zlib1g` |
+| --- | --- | --- | --- | --- |
+| Python packages | 37 (5 critical) | 9 (0 critical) | 0 | 0 |
+| Pillow | 28 | 0 | 0 | 0 |
+| Debian base image | 44 (no fix available) | 44 (no fix available) | 44 (no fix available) | 47 (no fix available) |
 
-Two changes removed the Python findings. Upgrading Pillow to 13.0.0 fixed 28 of them (Pillow decodes the images users upload). The remaining 9 were in packaging tools that the running app does not need, so the `Dockerfile` uninstalls `pip` and `setuptools` after installing the project. The trade-off is that nothing can be installed inside a running container, which is the normal practice for immutable images. The image must also be built without a stale cache (`--no-cache`), as CI does by building from scratch.
+Three changes removed the fixable findings. Upgrading Pillow to 13.0.0 fixed 28 of them (Pillow decodes the images users upload). The remaining 9 were in packaging tools that the running app does not need, so the `Dockerfile` uninstalls `pip` and `setuptools` after installing the project. The trade-off is that nothing can be installed inside a running container, which is the normal practice for immutable images. The image must also be built without a stale cache (`--no-cache`), as CI does by building from scratch. The third change was `zlib1g`, described below.
 
-The 44 Debian findings are in the base image and have no patched package yet. A scan reports known vulnerabilities in packages; it does not by itself prove security or regulatory compliance.
+The Debian findings are in the base image and none of them has a fixed version listed. The 47 findings correspond to 11 distinct vulnerabilities (CVE IDs) that Trivy repeats across the binary packages built from the same source package; for example, the four `util-linux` CVEs appear in nine packages. The count went from 44 to 47 between the scans in the table; the scans were done at different times, and the vulnerability database and the base image change over time. The new findings were not analysed one by one. Whether any of them is reachable from this application has not been assessed. A scan reports known vulnerabilities in packages; it does not by itself prove security or regulatory compliance.
+
+**A fixable finding is not an accepted risk.** After the table above was first built, CI started failing on a HIGH finding in `zlib1g` for which Debian had already published a fixed package, but the base image tag had not picked it up. Because it had a fix, it was not covered by the accepted risk for the findings without one: the `Dockerfile` now upgrades only that package with `apt-get install --only-upgrade zlib1g`. A targeted upgrade changes one package and is easy to review; a blanket `apt-get upgrade` would change an unpredictable set of packages on every build. The line becomes redundant when the base image ships the fixed package and should be reviewed then. The case also shows a known gap: with no scheduled scan, a new CVE is only found on the next change (see [`docs/security.md`](./docs/security.md)).
 
 The scan is blocking in CI (`security.yml`, job `trivy-image`): it builds the image from scratch, scans it with `--severity HIGH,CRITICAL --ignore-unfixed` and fails with exit code 1 if it finds anything. `--ignore-unfixed` hides findings that have no patched version yet, since nothing can be done about them in this repository. That is why the Debian findings above do not block the pipeline: they are an accepted risk, to be reviewed when the base image changes. The local command above does not use `--ignore-unfixed`, so it shows everything. The Trivy version is fixed (v0.76.1) and the GitHub Actions are pinned by commit SHA.
 
@@ -241,7 +269,7 @@ The first run reported two findings, both fixed:
 | `CKV_DOCKER_2` (no `HEALTHCHECK`) | `Dockerfile` | Added a `HEALTHCHECK` on `/health`. |
 | `CKV2_GHA_1` (no top-level permissions) | `tests.yml` | Added `permissions: contents: read`. |
 
-Current result: `Dockerfile` 82 passed, 0 failed; workflows 68 passed, 0 failed; no checks skipped. The job is blocking in CI.
+Current result: `Dockerfile` 99 passed, 0 failed; workflows 68 passed, 0 failed; no checks skipped. The job is blocking in CI.
 
 The gate was verified with a negative test: [PR #13](https://github.com/nataliagalanalv/flower-classifier/pull/13) (closed, never merged) removed the `HEALTHCHECK` and the `checkov` job failed with `CKV_DOCKER_2`, while `tests` and `trivy-image` passed.
 
@@ -255,6 +283,22 @@ A clean result means the rules Checkov knows passed; it does not prove the pipel
 
 Accepted risks, known gaps and next steps are documented in [`docs/security.md`](./docs/security.md).
 
+## AWS deployment (manual proof of concept)
+
+The container was run once on **Amazon ECS with Fargate**, built by hand in the AWS console in region `eu-south-2` (Spain), as a rehearsal before writing it as Terraform. The image came from a private ECR repository and the model from a private S3 bucket through an IAM task role, with no access keys anywhere. The model file was verified against its SHA-256 hash before loading. The API answered `/health` and `/predict` from a single allowed IP address, and the compute, network and logging resources were destroyed the same evening (the ECR repository, the S3 bucket and the IAM roles were kept).
+
+| | |
+| --- | --- |
+| Compute | ECS cluster on Fargate, one standalone task, 1 vCPU and 3 GiB |
+| Image | Private ECR repository, immutable tags, image `0.1.0` |
+| Model | Private S3 bucket (SSE-S3, versioning, all public access blocked), downloaded at startup |
+| Permissions | A task role that can read **one** S3 object, and a separate execution role for pulling the image and sending logs |
+| Network | Default VPC, public IP, security group allowing TCP 8000 from one `/32` address only |
+| Logs | CloudWatch Logs, 1 week retention |
+| Cost | About 0.04 US$ estimated for the whole account up to 2026-11-17, covered by credits |
+
+It is a rehearsal, not a production setup: HTTP only, no load balancer, no authentication. Four things went differently from expected (a wrong security group preselected by the console, a log group created by default settings, a Docker login problem on Windows, and local versus ECS credentials), and they are documented with their fixes. The full write-up, with the IAM policies, the evidence and the limitations, is in [`docs/aws-manual-deployment.md`](./docs/aws-manual-deployment.md). Next: Terraform, then CI/CD with GitHub Actions and OIDC, then monitoring.
+
 ## Approach summary
 
 | Approach | Trainable params | Val Accuracy | Test Accuracy |
@@ -267,7 +311,7 @@ Full breakdown, per-class accuracy, and the most frequent misclassifications are
 
 ## Testing
 
-The project includes a pytest suite (65 tests) covering model architecture shapes, layer freezing in transfer learning, the class-index-to-name mapping, the training/evaluation loops (`engine.py`), the image transforms, top-k prediction, the model registry and CLI of `train.py`, and the FastAPI endpoints (valid and invalid requests, startup failures). It does not run real training (slow, non-deterministic, needs the dataset); instead, the loops are tested on tiny synthetic data and fake models, and the API tests use a fake model, so they need no checkpoint. See [`docs/testing.md`](./docs/testing.md) for the full rationale, a breakdown of each test and what is not covered.
+The project includes a pytest suite (71 tests) covering model architecture shapes, layer freezing in transfer learning, the class-index-to-name mapping, the training/evaluation loops (`engine.py`), the image transforms, top-k prediction, the model registry and CLI of `train.py`, the FastAPI endpoints (valid and invalid requests, startup failures) and the model download from S3 (correct hash, wrong hash, no hash configured, and the server startup with and without S3 settings). It does not run real training (slow, non-deterministic, needs the dataset); instead, the loops are tested on tiny synthetic data and fake models, the API tests use a fake model, and the S3 tests use a fake S3 client, so they need no checkpoint, no network and no AWS account. See [`docs/testing.md`](./docs/testing.md) for the full rationale, a breakdown of each test and what is not covered.
 
 Run the suite from the project root:
 
@@ -280,4 +324,4 @@ The same suite runs automatically on GitHub Actions for every push to `main` and
 ## Notes on data sources
 
 - Class names (flower species) come from a community-maintained `cat_to_name.json` mapping, not an official torchvision/Oxford source — treat names as approximate; the numeric class index (0–101) is the reliable reference. See [`docs/analysis_results.md`](./docs/analysis_results.md) for a known inconsistency found in this file.
-- The `cat_to_name.json` file originates from Udacity's [`aipnd-project`](https://github.com/udacity/aipnd-project) repository, released under the MIT license. The license notice is kept in [`src/flower_classifier/resources/LICENSE-cat_to_name.txt`](./src/flower_classifier/resources/LICENSE-cat_to_name.txt).
+- The `cat_to_name.json` file originates from Udacity's [`aipnd-project`](https://github.com/udacity/aipnd-project) repository, released under the MIT license. The license notice is kept in [`src/flower_classifier/resources/LICENSE-cat_to_name.txt`](./src/flower_classifier/resources/LICENSE-cat_to_name.txt). 

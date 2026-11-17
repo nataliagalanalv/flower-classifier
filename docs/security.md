@@ -1,87 +1,131 @@
-# Seguridad
+# Security
 
-Qué comprobaciones de seguridad tiene el proyecto, para qué sirve cada una, qué **no** cubre y qué riesgos se aceptan a propósito. Describe un proyecto personal pequeño, no una auditoría formal ni una evaluación de cumplimiento normativo.
+What security checks the project has, what each one is for, what they do **not** cover, and which risks are accepted on purpose. It describes a small personal project, not a formal audit or a regulatory compliance assessment.
 
-Las cifras actuales (hallazgos, comprobaciones superadas, fechas de los escaneos) están en el [README](../README.md#vulnerability-scanning). No se repiten aquí para que no puedan quedar desactualizadas en dos sitios a la vez.
+The current figures (findings, passed checks, scan dates) are in the [README](../README.md#vulnerability-scanning). They are not repeated here so they cannot go out of date in two places at once.
 
-## Resumen de controles
+## Summary of controls
 
-| Control | Qué comprueba | Dónde se ejecuta | Quién lo hace cumplir |
+| Control | What it checks | Where it runs | What enforces it |
 | --- | --- | --- | --- |
-| Escaneo de vulnerabilidades de la imagen | Vulnerabilidades conocidas (HIGH y CRITICAL) en los paquetes del sistema operativo y de Python de la imagen construida | `security.yml`, job `trivy-image` | Trivy v0.76.1; el job falla con código de salida 1 si hay hallazgos (`--ignore-unfixed`, ver [Riesgos aceptados](#riesgos-aceptados)) |
-| Escaneo de configuración | El `Dockerfile` y los ficheros de workflow frente a las reglas incluidas en Checkov | `security.yml`, job `checkov` | Checkov 3.4.0, imagen fijada por digest; el job falla si una regla falla |
-| Endurecimiento del contenedor | Usuario sin privilegios, sin `pip` ni `setuptools` en la imagen final, modelo fuera de la imagen, `HEALTHCHECK`, contexto de construcción pequeño | `Dockerfile`, `.dockerignore` | El usuario sin privilegios y el `HEALTHCHECK` los comprueba Checkov; el resto es decisión de diseño y se refleja en los resultados de Trivy |
-| Endurecimiento de los workflows | Token limitado a `contents: read`; acciones fijadas por hash de commit | `tests.yml`, `security.yml` | Los permisos los comprueba Checkov (`CKV2_GHA_1`); el fijado por hash se hace a mano |
+| Image vulnerability scan | Known vulnerabilities (HIGH and CRITICAL) in the OS and Python packages of the built image | `security.yml`, job `trivy-image` | Trivy v0.76.1; the job fails with exit code 1 if there are findings (`--ignore-unfixed`, see [Accepted risks](#accepted-risks)) |
+| Configuration scan | The `Dockerfile` and the workflow files against Checkov's built-in rules | `security.yml`, job `checkov` | Checkov 3.4.0, image pinned by digest; the job fails if a rule fails |
+| Container hardening | Unprivileged user, no `pip` or `setuptools` in the final image, model kept out of the image, `HEALTHCHECK`, small build context, a targeted upgrade of a base-image package that has a fix | `Dockerfile`, `.dockerignore` | The unprivileged user and the `HEALTHCHECK` are checked by Checkov; the rest is a design decision and shows up in the Trivy results |
+| Workflow hardening | Token limited to `contents: read`; actions pinned by commit hash | `tests.yml`, `security.yml` | Permissions are checked by Checkov (`CKV2_GHA_1`); pinning by hash is done by hand |
+| Model integrity | The model file is checked against a SHA-256 hash before it is loaded, and loaded with `weights_only=True` | `app/model_store.py`, `app/main.py` | The application itself (unit tests in `tests/test_model_store.py`); the server refuses to start on a mismatch |
+| AWS access control (manual proof of concept) | Private bucket, least-privilege IAM roles, one allowed IP address | The AWS account, see [AWS](#aws-manual-proof-of-concept) | AWS IAM and security groups; checked by hand in the console. Not covered by any scanner yet |
 
-Los dos jobs de seguridad se ejecutan en cada pull request y en cada push a `main`.
+The two security jobs run on every pull request and on every push to `main`. The AWS controls are not part of the pipeline: they were built by hand and will be checked by Checkov once they exist as Terraform.
 
-## Principios de diseño
+## Design principles
 
-- **Hacer fallar la construcción en lugar de solo informar.** Un escáner que solo imprime una tabla acaba ignorado.
-- **Demostrar que la puerta puede fallar.** Un check en verde no dice nada hasta que se ha visto el mismo check en rojo (ver [Pruebas negativas de las puertas](#pruebas-negativas-de-las-puertas)).
-- **Fijar lo que se ejecuta en el pipeline.** Las acciones se fijan por hash de commit, Trivy por versión y Checkov por digest de imagen. Una etiqueta (*tag*) puede moverse para apuntar a otro código; un hash de commit o un digest, no. No es teórico: las versiones y etiquetas de acciones del propio Trivy se vieron afectadas por un incidente de cadena de suministro en marzo de 2026 [enlace al aviso: pendiente de añadir tras verificarlo]. Fijar limita lo que puede cambiar bajo el pipeline sin una revisión, pero no hace segura por sí sola una versión fijada.
-- **Mínimo privilegio.** El token del workflow es de solo lectura.
-- **Leer qué se ha escaneado, no solo el color del check.** El log forma parte de la revisión.
+- **Make the build fail instead of only reporting.** A scanner that just prints a table ends up ignored.
+- **Show that the gate can fail.** A green check says nothing until the same check has been seen red (see [Negative tests of the gates](#negative-tests-of-the-gates)).
+- **Pin what runs in the pipeline.** Actions are pinned by commit hash, Trivy by version and Checkov by image digest. A tag can be moved to point to different code; a commit hash or a digest cannot. This is not theoretical: the versions and tags of Trivy's own actions were affected by a supply-chain incident in March 2026 [link to the advisory: to be added once verified]. Pinning limits what can change under the pipeline without a review, but it does not make a pinned version safe by itself.
+- **Least privilege.** The workflow token is read-only. On AWS, the application's role can read one file.
+- **Read what was scanned, not just the colour of the check.** The log is part of the review.
+- **Fix what has a fix; accept only what has none.** A finding with an available patch is not covered by an accepted risk (see [Accepted risks](#accepted-risks)).
 
-## Pruebas negativas de las puertas
+## Negative tests of the gates
 
-| Puerta | Prueba negativa | Resultado |
+| Gate | Negative test | Result |
 | --- | --- | --- |
-| Trivy | [PR #9](https://github.com/nataliagalanalv/flower-classifier/pull/9) (cerrado, sin fusionar) fijó la versión vulnerable Pillow 12.3.0 | `security` falló con código de salida 1 y los hallazgos de Pillow; `tests` pasó |
-| Checkov | [PR #13](https://github.com/nataliagalanalv/flower-classifier/pull/13) (cerrado, sin fusionar) quitó el `HEALTHCHECK` | El paso del Dockerfile falló con `CKV_DOCKER_2`; `tests` y `trivy-image` pasaron |
+| Trivy | [PR #9](https://github.com/nataliagalanalv/flower-classifier/pull/9) (closed, never merged) pinned the vulnerable Pillow 12.3.0 | `security` failed with exit code 1 and the Pillow findings; `tests` passed |
+| Checkov | [PR #13](https://github.com/nataliagalanalv/flower-classifier/pull/13) (closed, never merged) removed the `HEALTHCHECK` | The Dockerfile step failed with `CKV_DOCKER_2`; `tests` and `trivy-image` passed |
 
-Las capturas están en `docs/images/`. Dos de estas pruebas no funcionaron a la primera, y las dos enseñaron algo:
+The screenshots are in `docs/images/`. Two of these tests did not work the first time, and both taught something:
 
-- **La primera prueba de Trivy no era válida.** Usaba `pillow>=12.3.0`, que sigue resolviéndose a Pillow 13.0.0, así que no se instaló nada vulnerable y el check siguió en verde. Una prueba negativa tiene que crear de verdad la condición que dice probar, así que se cambió a `pillow==12.3.0`.
-- **El primer job de Checkov solo escaneaba la mitad de sus objetivos.** Pasaba `--file` y `--directory` en un solo comando, y el log tenía un bloque `github_actions scan results` pero ninguno de `dockerfile scan results`. El Dockerfile nunca se comprobaba, así que quitar el `HEALTHCHECK` seguía en verde. Se corrigió en el [PR #14](https://github.com/nataliagalanalv/flower-classifier/pull/14) con un paso por objetivo. No se conoce la causa de que el comando único se comportara así; el log es la única evidencia.
+- **The first Trivy test was not valid.** It used `pillow>=12.3.0`, which still resolves to Pillow 13.0.0, so nothing vulnerable was installed and the check stayed green. A negative test has to really create the condition it claims to test, so it was changed to `pillow==12.3.0`.
+- **The first Checkov job only scanned half of its targets.** It passed `--file` and `--directory` in one command, and the log had a `github_actions scan results` block but no `dockerfile scan results` block. The Dockerfile was never checked, so removing the `HEALTHCHECK` stayed green. It was fixed in [PR #14](https://github.com/nataliagalanalv/flower-classifier/pull/14) with one step per target. The cause of the single command behaving that way is not known; the log is the only evidence.
 
-## Riesgos aceptados
+The model-integrity control has its own negative tests in `tests/test_model_store.py`: a wrong hash raises an error and removes the downloaded file, and the server refuses to start in that case.
 
-| Riesgo | Por qué se acepta | Revisión |
+## AWS (manual proof of concept)
+
+The application was deployed once, by hand, on ECS Fargate. The full description, with evidence and lessons, is in [`aws-manual-deployment.md`](./aws-manual-deployment.md). The security-relevant parts:
+
+| Control | What it does | How it was checked |
 | --- | --- | --- |
-| Hallazgos HIGH en paquetes de Debian de la imagen base sin versión corregida disponible | No se puede arreglar nada en este repositorio hasta que Debian publique una corrección. El CI los oculta con `--ignore-unfixed`; el comando local del README no lo usa, así que siguen visibles. **No** se ha evaluado si cada uno es alcanzable desde esta aplicación. | Volver a escanear cada vez que se reconstruya la imagen base y cuando la etiqueta de la imagen base pase a una versión más nueva |
+| Private model bucket | All public access blocked, SSE-S3 encryption, versioning on, in a EU region (`eu-south-2`) | Settings read in the console |
+| Least-privilege task role | `s3:GetObject` on one object ARN. No listing, no writes, no other resources | The policy JSON in the console; the app loaded the model with it |
+| Two separate roles | Execution role (pulls the image, sends logs) and task role (used by the app code). Trust policy of the task role limited with `aws:SourceAccount` and `aws:SourceArn` against the confused deputy problem | Reviewed in the console; checked against the AWS documentation while designing it |
+| No credentials in the image or in the task definition | The app gets temporary credentials from the task role | The model loaded in ECS without any keys configured |
+| Model integrity | SHA-256 check and `weights_only=True`, see [Summary of controls](#summary-of-controls) | Unit tests; real end-to-end run |
+| Network exposure | A security group allowing TCP 8000 from one IPv4 address (`/32`) and nothing else | A request from the allowed address worked. A request from another network was **not** tested. A task launched with the wrong security group was unreachable (see the lessons in the AWS document) |
+| Short log retention | Log group with 1 week retention, because the logs contain client IP addresses | Settings read in the console |
+| Immutable image tags | ECR does not allow overwriting a tag | Setting read in the console |
 
-Un riesgo aceptado es una decisión, no una corrección: se queda en esta lista hasta que los hallazgos desaparezcan o se evalúen uno a uno.
+A side effect worth knowing: because the task role cannot list the bucket, S3 will normally answer "access denied" instead of "not found" when the key is wrong. This is S3's behaviour as I understand it; it was not tested here.
 
-## Huecos conocidos
+Local access to AWS uses an IAM user signed in with `aws login`. Always check that the identity is the IAM user and not the root user before running commands.
 
-Todavía sin hacer, sin un orden concreto:
+## Accepted risks
 
-- **No hay un escaneo programado.** Los escaneos se ejecutan en push y en pull request. La base de datos de vulnerabilidades se actualiza a diario, así que una CVE nueva que afecte a una imagen sin cambios no se detecta hasta el siguiente cambio.
-- **`main` no está protegida.** Los pull requests son una costumbre, no una regla: se puede subir directamente a `main` (y ha pasado con commits de documentación).
-- **Las dependencias se declaran con `>=`.** Dos construcciones en días distintos pueden instalar versiones distintas. Falta fijar las versiones o usar un fichero de bloqueo.
-- **La imagen base se referencia por etiqueta** (`python:3.14-slim`), no por digest. La etiqueta sigue recibiendo reconstrucciones con parches de seguridad, lo cual es útil, pero las construcciones no son reproducibles.
-- **`runs-on: ubuntu-latest` no está fijado**, así que la imagen del ejecutor cambia con el tiempo. Algunas acciones están en versiones antiguas (el paso de checkout muestra un aviso de obsolescencia de Node 20); actualizarlas exige leer antes las notas de cada versión.
-- **No hay escaneo de secretos en el CI.** El escáner de secretos de Trivy está desactivado (`--scanners vuln`) porque agotaba el tiempo con la imagen de 2 GB. Escanear los ficheros del repositorio en lugar de las capas de la imagen encaja mejor y está por evaluar.
-- **No se analiza el código de la aplicación** (ni análisis estático ni dinámico).
-- **La API no tiene autenticación ni límite de peticiones**, y no se ha verificado el límite de tamaño de las subidas. Hay que revisar `app/main.py` antes de afirmar nada sobre esto.
-- **El contenedor se construye y se escanea en el CI, pero nunca se arranca.** Que arranca y pasa a `healthy` se comprobó a mano con `docker run` y `docker ps`.
+| Risk | Why it is accepted | Review |
+| --- | --- | --- |
+| HIGH findings in Debian packages of the base image with no fixed version available | Nothing can be fixed in this repository until Debian publishes a fix. CI hides them with `--ignore-unfixed`; the local command in the README does not use it, so they stay visible. It has **not** been assessed whether each one is reachable from this application | Scan again every time the base image is rebuilt and when the base image tag moves to a newer version |
+| Manual AWS test: default VPC, public IP on the task, HTTP only, access from a single home IP address | It was a short test, destroyed the same evening. Nothing like it should stay running | Replaced by Terraform with its own VPC, a load balancer and TLS (see [Next steps](#next-steps)) |
+| Logs without a customer-managed KMS key | The logs hold request lines and client IP addresses, kept for 1 week, and nothing else sensitive was noticed. A customer-managed key adds cost and a key policy to maintain | Revisit if the logs start to hold anything more sensitive |
+| The execution role uses the AWS managed policy `AmazonECSTaskExecutionRolePolicy` | It is the standard policy for that role and has no access to the model or to user data | Review its permissions when the role is written in Terraform |
 
-## Lo que los escáneres no pueden decirte
+An accepted risk is a decision, not a fix: it stays on this list until the findings disappear or are assessed one by one.
 
-- **Trivy** informa de vulnerabilidades *conocidas* en los paquetes instalados. No encuentra las desconocidas, y un escaneo limpio es una afirmación sobre su base de datos ese día.
-- **Checkov** aplica las reglas con las que viene. Por ejemplo, en su salida no apareció ninguna regla sobre fijar acciones por hash, así que ninguna herramienta verifica ese control aquí.
-- **Ninguno de los dos verifica el cumplimiento normativo**, tampoco el del RGPD.
+**What an accepted risk does not cover.** A finding that has a fixed version available is not covered by the first row. This happened once: Trivy failed in CI on a HIGH finding in `zlib1g` for which Debian had already published a fixed package. The base image tag had not yet picked it up. The fix was a targeted `apt-get install --only-upgrade zlib1g` step in the `Dockerfile`, which changes one package and is easy to review. A blanket `apt-get upgrade` would change an unpredictable set of packages on every build. The extra line becomes redundant once the base image ships the fixed package; it should be reviewed when the base image tag moves.
 
-## Privacidad (RGPD): pendiente de documentar
+## Known gaps
 
-Ningún escáner comprueba esto y todavía no se ha escrito. Los puntos de abajo son preguntas por responder leyendo el código y el futuro despliegue, no afirmaciones sobre cómo se comporta la aplicación hoy:
+Not done yet, in no particular order:
 
-- ¿Qué pasa con una imagen subida: se guarda, se registra en logs o solo se mantiene en memoria?
-- ¿Las subidas pueden llevar datos personales (por ejemplo, coordenadas GPS en los metadatos EXIF)?
-- ¿Se registran las direcciones IP de los clientes, dónde y durante cuánto tiempo?
-- ¿En qué región estarán los logs y los datos almacenados (UE)?
-- ¿Se recoge algo más de lo que necesita la predicción (minimización de datos)?
+- **No scheduled scan.** Scans run on push and on pull request. The vulnerability database is updated daily, so a new CVE affecting an unchanged image is not detected until the next change. The `zlib1g` case above was found this way.
+- **`main` is not protected.** Pull requests are a habit, not a rule: it is possible to push directly to `main` (and it has happened with documentation commits).
+- **Dependencies are declared with `>=`.** Two builds on different days may install different versions. Pinning the versions or using a lock file is missing.
+- **The base image is referenced by tag** (`python:3.14-slim`), not by digest. The tag keeps receiving rebuilds with security patches, which is useful, but builds are not reproducible.
+- **`runs-on: ubuntu-latest` is not pinned**, so the runner image changes over time. Some actions are on old versions (the checkout step shows a Node 20 deprecation warning); upgrading them requires reading each version's release notes first.
+- **No secret scanning in CI.** Trivy's secret scanner is disabled (`--scanners vuln`) because it timed out on the 2 GB image. Scanning the repository files instead of the image layers fits better and is still to be evaluated.
+- **The application code is not analysed** (neither static nor dynamic analysis).
+- **The API has no authentication and no rate limiting**, and the upload size limit has not been verified. `app/main.py` has to be reviewed before claiming anything about this.
+- **The container is built and scanned in CI but never started there.** That it starts and becomes `healthy` was checked by hand with `docker run` and `docker ps`.
+- **The AWS controls are not scanned or enforced by any tool.** They will be once they are written as Terraform and checked with Checkov.
+- **IAM is not restricted to the region in use.** A condition on `aws:RequestedRegion` would limit mistakes and misuse to one region.
+- **Local sign-in is an IAM user with `aws login`.** IAM Identity Center would be stricter and is a candidate.
+- **No monitoring or alarms yet.** Planned for the CloudWatch stage.
+- **The console's defaults created things that were not asked for** (a pre-selected `default` security group and an auto-created log group without retention), as described in the AWS document. The only reliable defence is to write infrastructure as code and review what exists.
 
-Esto es documentación de ingeniería, no asesoramiento jurídico. Está previsto para las últimas semanas del proyecto.
+## What scanners cannot tell you
 
-## Próximos pasos
+- **Trivy** reports *known* vulnerabilities in installed packages. It does not find unknown ones, and a clean scan is a statement about its database on that day.
+- **Checkov** applies the rules it ships with. For example, no rule about pinning actions by hash appeared in its output, so no tool verifies that control here.
+- **Neither checks regulatory compliance**, GDPR included.
 
-Previstos, por orden de prioridad:
+## Privacy (GDPR): partly answered, not yet written up
 
-1. Proteger `main` (exigir pull requests y checks en verde).
-2. Añadir una ejecución programada del workflow de seguridad.
-3. Fijar las versiones de las dependencias y decidir cómo fijar la imagen base.
-4. Añadir al CI una prueba de humo que arranque el contenedor y espere a que esté `healthy`.
-5. Ejecutar Checkov sobre el código de Terraform cuando exista (la misma herramienta, un objetivo nuevo).
-6. En AWS: roles de IAM con mínimo privilegio, GitHub Actions autenticándose por OIDC en lugar de claves de larga duración, y el modelo en un bucket privado. Son planes; cada uno debe contrastarse con la documentación actual de AWS cuando se implemente.
+No scanner checks this and it is not written up yet. Some of the questions can now be answered from the code and from the AWS test; the rest are still open. This is engineering documentation, not legal advice.
+
+**What is known:**
+
+- **Uploaded images are not stored.** The `/predict` handler reads the upload into memory, decodes it and returns the predictions; no code in the handler writes the file anywhere. The rest of the prediction path (`predict_top_k`) has not been audited for side effects.
+- **Client IP addresses are logged.** Uvicorn's access log line includes the client IP address, and in AWS the logs go to CloudWatch Logs in `eu-south-2` (Spain), with 1 week retention in the manual test. An IP address is personal data under the GDPR.
+
+**Still open:**
+
+- Can uploads carry personal data (for example, GPS coordinates in the EXIF metadata)? The handler does not use that metadata, but `predict_top_k` and the logs have not been checked for it.
+- Is anything collected beyond what the prediction needs (data minimisation)? Should the access log keep the full client IP?
+- Where will the logs and stored data live in the final deployment, and for how long?
+- What the application tells users about all of this (a privacy notice).
+
+The write-up is planned for the last weeks of the project.
+
+## Next steps
+
+Planned, in order of priority:
+
+1. Protect `main` (require pull requests and green checks).
+2. Add a scheduled run of the security workflow.
+3. Pin the dependency versions and decide how to pin the base image.
+4. Add a smoke test to CI that starts the container and waits for it to be `healthy`.
+5. Write the AWS setup as Terraform, with its own VPC instead of the default one, the security group declared explicitly and a load balancer with TLS, and run Checkov on it (the same tool, a new target).
+6. GitHub Actions authenticating to AWS through OIDC instead of long-lived keys, pushing images tagged with the commit hash.
+7. CloudWatch monitoring and alarms; restrict IAM to the region in use.
+8. Write up the privacy section above.
+
+All AWS items are plans; each one has to be checked against the current AWS documentation when it is implemented.
